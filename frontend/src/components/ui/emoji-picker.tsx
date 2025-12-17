@@ -1,82 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
+import twemoji from 'twemoji'
+import emojibase from 'emojibase-data/en/data.json'
 
-const EMOJI_CATEGORIES = {
-    recent: ['📄', '📁', '✨', '🔥', '💡', '📝', '🎯', '🚀'],
-    smileys: [
-        '😀',
-        '😃',
-        '😄',
-        '😁',
-        '😅',
-        '😂',
-        '🤣',
-        '😊',
-        '😇',
-        '🙂',
-        '🙃',
-        '😉',
-        '😌',
-        '😍',
-        '🥰',
-        '😘'
-    ],
-    nature: [
-        '🌱',
-        '🌿',
-        '☘️',
-        '🍀',
-        '🌸',
-        '🌺',
-        '🌻',
-        '🌹',
-        '🌷',
-        '🌼',
-        '🌴',
-        '🌳',
-        '🌲',
-        '🍁',
-        '🍃',
-        '🌾'
-    ],
-    objects: [
-        '📚',
-        '📖',
-        '📝',
-        '📄',
-        '📃',
-        '📋',
-        '📊',
-        '📈',
-        '📉',
-        '🗂️',
-        '📁',
-        '📂',
-        '🗃️',
-        '🗄️',
-        '📦',
-        '🗳️'
-    ],
-    symbols: [
-        '❤️',
-        '🧡',
-        '💛',
-        '💚',
-        '💙',
-        '💜',
-        '🖤',
-        '🤍',
-        '🤎',
-        '💔',
-        '❣️',
-        '💕',
-        '💞',
-        '💓',
-        '💗',
-        '💖'
-    ],
-    flags: ['🏁', '🚩', '🎌', '🏴', '🏳️', '🏳️‍🌈', '🏴‍☠️', '🇺🇳']
+interface Emoji {
+    emoji: string
+    label: string
+}
+
+interface EmojiCategories {
+    [key: string]: Emoji[]
 }
 
 interface EmojiPickerProps {
@@ -86,8 +20,23 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({ value, onSelect }: EmojiPickerProps) {
     const [open, setOpen] = useState(false)
-    const [category, setCategory] =
-        useState<keyof typeof EMOJI_CATEGORIES>('recent')
+    const [categories, setCategories] = useState<EmojiCategories>({})
+    const [activeCategory, setActiveCategory] = useState<string>('smileys')
+
+    useEffect(() => {
+        const categoryMap: EmojiCategories = {}
+        emojibase.forEach((emoji) => {
+            const category = emoji.group?.toString() ?? 'other'
+            if (!categoryMap[category]) {
+                categoryMap[category] = []
+            }
+            categoryMap[category].push({
+                emoji: emoji.emoji,
+                label: emoji.label
+            })
+        })
+        setCategories(categoryMap)
+    }, [])
 
     const handleSelect = (emoji: string) => {
         onSelect(emoji)
@@ -101,38 +50,39 @@ export function EmojiPicker({ value, onSelect }: EmojiPickerProps) {
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 text-lg"
-                >
-                    {value || '📄'}
-                </Button>
+                    dangerouslySetInnerHTML={{
+                        __html: twemoji.parse(value || '📄')
+                    }}
+                />
             </PopoverTrigger>
             <PopoverContent className="w-80">
                 <div className="space-y-2">
                     <div className="flex gap-1 border-b pb-2 overflow-x-auto">
-                        {Object.keys(EMOJI_CATEGORIES).map((cat) => (
+                        {Object.keys(categories).map((cat) => (
                             <Button
                                 key={cat}
-                                variant={category === cat ? 'default' : 'ghost'}
-                                size="sm"
-                                onClick={() =>
-                                    setCategory(
-                                        cat as keyof typeof EMOJI_CATEGORIES
-                                    )
+                                variant={
+                                    activeCategory === cat ? 'default' : 'ghost'
                                 }
+                                size="sm"
+                                onClick={() => setActiveCategory(cat)}
                                 className="text-xs"
                             >
                                 {cat}
                             </Button>
                         ))}
                     </div>
-                    <div className="grid grid-cols-8 gap-1">
-                        {EMOJI_CATEGORIES[category].map((emoji) => (
+                    <div className="grid grid-cols-8 gap-1 h-56 overflow-y-auto">
+                        {categories[activeCategory]?.map(({ emoji, label }) => (
                             <button
-                                key={emoji}
+                                key={label}
                                 onClick={() => handleSelect(emoji)}
                                 className="text-2xl hover:bg-accent rounded p-1"
-                            >
-                                {emoji}
-                            </button>
+                                dangerouslySetInnerHTML={{
+                                    __html: twemoji.parse(emoji)
+                                }}
+                                title={label}
+                            />
                         ))}
                     </div>
                 </div>
