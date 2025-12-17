@@ -1,0 +1,22 @@
+{
+  "identifier": "migrated",
+  "description": "permissions that were migrated from v1",
+  "local": true,
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "process:default",
+    "shell:default",
+    "core:app:default",
+    "core:event:default",
+    "core:window:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
+    "core:path:default",
+    "dialog:allow-open",
+    "dialog:allow-message"
+  ]
+}

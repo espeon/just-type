@@ -1,0 +1,103 @@
+# List available commands
+default:
+    @just --list
+
+# Start postgres in docker
+db:
+    docker-compose up -d
+    @echo "PostgreSQL running on localhost:5432"
+
+# Stop postgres
+db-stop:
+    docker-compose down
+
+# Reset database (WARNING: deletes all data)
+db-reset:
+    docker-compose down -v
+    docker-compose up -d
+    @echo "Database reset complete"
+
+# Run database migrations
+migrate:
+    cargo sqlx migrate run
+
+# Create a new migration
+migrate-create NAME:
+    cargo sqlx migrate add {{NAME}}
+
+# Setup .env from example if it doesn't exist
+setup:
+    @if [ ! -f .env ]; then \
+        cp .env.example .env; \
+        echo ".env created from .env.example"; \
+        echo "Please update DATABASE_URL and JWT_SECRET"; \
+    else \
+        echo ".env already exists"; \
+    fi
+
+# Run the server
+run: db
+    cargo run
+
+# Run with hot reload (requires cargo-watch)
+dev: db
+    cargo watch -x run
+
+# Build the server
+build:
+    cargo build
+
+# Build release version
+build-release:
+    cargo build --release
+
+# Run tests
+test:
+    cargo test
+
+# Check code without building
+check:
+    cargo check
+
+# Format code
+fmt:
+    cargo fmt
+
+# Lint code
+lint:
+    cargo clippy
+
+# Full check (format + lint + build)
+precommit: fmt lint build
+
+# Clean build artifacts
+clean:
+    cargo clean
+
+# Full setup for new developers
+init: setup db
+    cargo sqlx migrate run
+    @echo ""
+    @echo "Setup complete! Run 'just run' to start the server"
+
+# Test API endpoints (requires server running)
+test-register:
+    curl -X POST http://localhost:3000/api/auth/register \
+      -H "Content-Type: application/json" \
+      -d '{"email": "test@example.com", "password": "password123"}'
+
+test-login:
+    curl -X POST http://localhost:3000/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"email": "test@example.com", "password": "password123"}'
+
+test-health:
+    curl http://localhost:3000/health
+
+# Install cargo-watch for dev mode
+install-watch:
+    cargo install cargo-watch
+
+# Install sqlx-cli for migrations
+install-sqlx:
+    cargo install sqlx-cli --no-default-features --features postgres
