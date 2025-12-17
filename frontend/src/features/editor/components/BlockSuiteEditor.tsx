@@ -8,9 +8,18 @@ import { CollaborationDialog } from './CollaborationDialog'
 import { EmojiPicker } from '@/components/ui/emoji-picker'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Plus, X } from 'lucide-react'
+import { GripVertical, Plus, X } from 'lucide-react'
 import * as Y from 'yjs'
 import { TiptapEditor } from './TiptapEditor'
+import DragHandle from '@tiptap/extension-drag-handle-react'
+import BubbleMenuComponent from './BubbleMenu'
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger
+} from '@/components/ui/popover'
+import { SlashCommandList } from './SlashCommandList'
+import { commands } from '../extensions/SlashCommandExtension'
 
 interface BlockSuiteEditorProps {
     document: Document
@@ -27,6 +36,11 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [newTag, setNewTag] = useState('')
     const [descriptionValue, setDescriptionValue] = useState(
         document.metadata.description || ''
+    )
+    const [commandPopoverOpen, setCommandPopoverOpen] = useState(false)
+    const [insertBefore, setInsertBefore] = useState(false)
+    const [dragHandleNodePos, setDragHandleNodePos] = useState<number | null>(
+        null
     )
 
     const { editor, ydoc } = useTiptapEditor({
@@ -58,13 +72,35 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
         }
     }, [ydoc, document.id, saveDocument])
 
-    const { connected, peerCount } = useCollaboration({
+    const { provider, connected, peerCount } = useCollaboration({
         ydoc: ydoc || new Y.Doc(),
         documentId: document.id,
         enabled: collaborationEnabled && !!ydoc,
         roomPassword,
         userName
     })
+
+    useEffect(() => {
+        if (!editor || !provider) return
+
+        import('@tiptap/extension-collaboration-caret').then(
+            ({ default: CollaborationCaret }) => {
+                editor.extensionManager.extensions.push(
+                    CollaborationCaret.configure({
+                        provider,
+                        user: {
+                            name: userName,
+                            color:
+                                '#' +
+                                Math.floor(Math.random() * 16777215).toString(
+                                    16
+                                )
+                        }
+                    })
+                )
+            }
+        )
+    }, [editor, provider, userName])
 
     const handleStartCollaboration = (name: string, password: string) => {
         setUserName(name)
@@ -90,7 +126,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
             <div className="flex-1 overflow-auto">
                 <div className="max-w-4xl mx-auto">
                     <div className="p-2 my-12">
-                        <div className="ml-14 mb-4 space-y-3">
+                        <div className="ml-6 mb-4 space-y-3">
                             <div className="flex items-center gap-2">
                                 <EmojiPicker
                                     value={document.metadata.icon}
@@ -191,6 +227,166 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                 </div>
                             </div>
                         </div>
+                        <DragHandle
+                            editor={editor}
+                            computePositionConfig={{ placement: 'left' }}
+                            className="-ml-4 flex"
+                            onNodeChange={({ node, pos }) => {
+                                if (node) {
+                                    setDragHandleNodePos(pos)
+                                }
+                            }}
+                        >
+                            <Popover
+                                open={commandPopoverOpen}
+                                onOpenChange={setCommandPopoverOpen}
+                            >
+                                <PopoverTrigger asChild>
+                                    <Plus
+                                        className="h-full text-muted-foreground cursor-pointer"
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            setInsertBefore(e.shiftKey)
+                                            setCommandPopoverOpen(true)
+                                        }}
+                                    />
+                                </PopoverTrigger>
+                                <PopoverContent
+                                    className="w-64 p-0"
+                                    align="start"
+                                >
+                                    <SlashCommandList
+                                        items={commands.map((cmd) => ({
+                                            ...cmd,
+                                            command: (editor: any) => {
+                                                if (
+                                                    !editor ||
+                                                    dragHandleNodePos === null
+                                                )
+                                                    return
+
+                                                const { doc } = editor.state
+                                                const node =
+                                                    doc.nodeAt(
+                                                        dragHandleNodePos
+                                                    )
+                                                if (!node) return
+
+                                                // calculate position before or after the node
+                                                const pos = insertBefore
+                                                    ? dragHandleNodePos
+                                                    : dragHandleNodePos +
+                                                      node.nodeSize
+
+                                                // create content based on command type
+                                                let content: any
+                                                if (
+                                                    cmd.title.includes(
+                                                        'Heading'
+                                                    )
+                                                ) {
+                                                    const level = parseInt(
+                                                        cmd.title.split(' ')[1]
+                                                    )
+                                                    content = {
+                                                        type: 'heading',
+                                                        attrs: { level }
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Paragraph'
+                                                ) {
+                                                    content = {
+                                                        type: 'paragraph'
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Bullet List'
+                                                ) {
+                                                    content = {
+                                                        type: 'bulletList',
+                                                        content: [
+                                                            {
+                                                                type: 'listItem',
+                                                                content: [
+                                                                    {
+                                                                        type: 'paragraph'
+                                                                    }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                } else if (
+                                                    cmd.title ===
+                                                    'Numbered List'
+                                                ) {
+                                                    content = {
+                                                        type: 'orderedList',
+                                                        content: [
+                                                            {
+                                                                type: 'listItem',
+                                                                content: [
+                                                                    {
+                                                                        type: 'paragraph'
+                                                                    }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Code Block'
+                                                ) {
+                                                    content = {
+                                                        type: 'codeBlock'
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Blockquote'
+                                                ) {
+                                                    content = {
+                                                        type: 'blockquote',
+                                                        content: [
+                                                            {
+                                                                type: 'paragraph'
+                                                            }
+                                                        ]
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Divider'
+                                                ) {
+                                                    content = {
+                                                        type: 'horizontalRule'
+                                                    }
+                                                } else if (
+                                                    cmd.title === 'Columns'
+                                                ) {
+                                                    editor
+                                                        .chain()
+                                                        .focus()
+                                                        .setColumns()
+                                                        .run()
+                                                    return
+                                                }
+
+                                                editor
+                                                    .chain()
+                                                    .focus()
+                                                    .insertContentAt(
+                                                        pos,
+                                                        content
+                                                    )
+                                                    .run()
+                                            }
+                                        }))}
+                                        command={() => {}}
+                                        onSelect={(cmd) => {
+                                            cmd.command(editor)
+                                            setCommandPopoverOpen(false)
+                                        }}
+                                        showSearch={true}
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                            <GripVertical className="h-full text-muted-foreground" />
+                        </DragHandle>
+                        <BubbleMenuComponent editor={editor} />
                         <TiptapEditor editor={editor} />
                     </div>
                 </div>

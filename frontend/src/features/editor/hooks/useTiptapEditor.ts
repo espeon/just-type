@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Collaboration from '@tiptap/extension-collaboration'
-import CollaborationCaret from '@tiptap/extension-collaboration-caret'
+import Placeholder from '@tiptap/extension-placeholder'
+import { KeyboardShortcutsExtension } from '../extensions/KeyboardShortcutsExtension'
+import { SlashCommandExtension } from '../extensions/SlashCommandExtension'
+import { DocumentMentionExtension } from '../extensions/DocumentMentionExtension'
+import { VaultIndex } from '@/features/vault/types'
 import * as Y from 'yjs'
 
 interface UseTiptapEditorProps {
     documentId?: string
     initialState?: string
     ydoc?: Y.Doc
+    index?: VaultIndex | null
 }
 
 export function useTiptapEditor({
@@ -40,18 +45,21 @@ export function useTiptapEditor({
             Collaboration.configure({
                 document: ydoc
             }),
-            CollaborationCaret.configure({
-                provider: null,
-                user: {
-                    name: 'anonymous',
-                    color:
-                        '#' + Math.floor(Math.random() * 16777215).toString(16)
+            Placeholder.configure({
+                placeholder: ({ node }) => {
+                    if (node.type.name === 'heading') {
+                        return 'heading'
+                    }
+                    return "type '/' for commands"
                 }
-            })
+            }),
+            KeyboardShortcutsExtension,
+            SlashCommandExtension,
+            DocumentMentionExtension
         ],
         editorProps: {
             attributes: {
-                class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl focus:outline-none min-h-screen p-8'
+                class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8'
             }
         }
     })
