@@ -12,6 +12,8 @@ interface UseTiptapEditorProps {
 }
 
 export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
+    console.log('useTiptapEditor: creating editor with ydoc', ydoc)
+
     const editor = useEditor({
         extensions: [
             StarterKit,
@@ -34,8 +36,16 @@ export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
             attributes: {
                 class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8'
             }
+        },
+        onUpdate: ({ editor }) => {
+            console.log('Tiptap editor update fired, ydoc updates:', ydoc)
         }
     })
+
+    console.log(
+        'useTiptapEditor returning editor:',
+        editor ? 'initialized' : 'null'
+    )
 
     return {
         editor
