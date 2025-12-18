@@ -192,7 +192,9 @@ async fn handle_binary_message(
     doc: &Option<String>,
 ) -> anyhow::Result<()> {
     // Yjs y-protocols message format:
-    // varUint(messageType) • varByteArray(payload)
+    // varUint(syncProtocolMessageType) • varUint(messageType) • varByteArray(payload)
+    // where syncProtocolMessageType := 0 for sync protocol
+    // messageType := 0 (Sync Step 1), 1 (Sync Step 2), 2 (Update)
     // Message types:
     // 0 = Sync Step 1 (client sends state vector)
     // 1 = Sync Step 2 (server sends missing updates)
@@ -204,54 +206,73 @@ async fn handle_binary_message(
         return Ok(());
     }
 
-    let (msg_type, rest) = read_var_from_slice(data)?;
+    let (protocol_type, rest1) = read_var_from_slice(data)?;
 
-    // Now read the payload as varByteArray (length prefixed)
-    let (payload_len, payload_start) = read_var_from_slice(rest)?;
-    let payload_len = payload_len as usize;
+    if protocol_type == 0 {
+        // Sync protocol message
+        let (msg_type, rest2) = read_var_from_slice(rest1)?;
 
-    if payload_start.len() < payload_len {
-        tracing::warn!(
-            "Message payload length mismatch: declared={}, available={}",
-            payload_len,
-            payload_start.len()
-        );
-        return Ok(());
-    }
+        // Now read the payload as varByteArray (length prefixed)
+        let (payload_len, payload_start) = read_var_from_slice(rest2)?;
+        let payload_len = payload_len as usize;
 
-    let payload = &payload_start[..payload_len];
-
-    tracing::debug!(
-        "handle_binary_message: msg_type={} total_len={} payload_len={}",
-        msg_type,
-        data.len(),
-        payload.len()
-    );
-
-    match msg_type {
-        0 => {
-            // Sync Step 1: Client sends state vector
-            handle_sync_step1(sender, state, payload, subscriptions, doc).await?;
-        }
-        1 => {
-            // Sync Step 2 is normally server -> client only. If we receive a msg_type=1 from a client,
-            // it's likely a misrouted message. Log and ignore.
+        if payload_start.len() < payload_len {
             tracing::warn!(
-                "Received msg_type=1 from client (Sync Step 2); payload_len={}",
-                payload.len()
+                "Message payload length mismatch: declared={}, available={}",
+                payload_len,
+                payload_start.len()
             );
+            return Ok(());
         }
-        2 => {
-            // Update: Client sends incremental update
-            handle_update(sender, state, payload, doc).await?;
+
+        let payload = &payload_start[..payload_len];
+
+        tracing::debug!(
+            "handle_binary_message: msg_type={} total_len={} payload_len={}",
+            msg_type,
+            data.len(),
+            payload.len()
+        );
+
+        match msg_type {
+            0 => {
+                // Sync Step 1: Client sends state vector
+                handle_sync_step1(sender, state, payload, subscriptions, doc).await?;
+            }
+            1 => {
+                // Sync Step 2 is normally server -> client only. If we receive a msg_type=1 from a client,
+                // it's likely a misrouted message. Log and ignore.
+                tracing::warn!(
+                    "Received msg_type=1 from client (Sync Step 2); payload_len={}",
+                    payload.len()
+                );
+            }
+            2 => {
+                // Update: Client sends incremental update
+                handle_update(sender, state, payload, doc).await?;
+            }
+            _ => {
+                tracing::warn!("Unknown sync message type: {}", msg_type);
+            }
         }
-        3 => {
-            // Awareness: Broadcast to other clients
-            handle_awareness(sender, state, payload).await?;
+    } else if protocol_type == 1 {
+        // Awareness protocol message
+        let (payload_len, payload_start) = read_var_from_slice(rest1)?;
+        let payload_len = payload_len as usize;
+
+        if payload_start.len() < payload_len {
+            tracing::warn!(
+                "Awareness payload length mismatch: declared={}, available={}",
+                payload_len,
+                payload_start.len()
+            );
+            return Ok(());
         }
-        _ => {
-            tracing::warn!("Unknown message type: {}", msg_type);
-        }
+
+        let payload = &payload_start[..payload_len];
+        handle_awareness(sender, state, payload).await?;
+    } else {
+        tracing::warn!("Unknown protocol type: {}", protocol_type);
     }
 
     Ok(())
@@ -295,9 +316,10 @@ async fn handle_sync_step1(
     };
 
     // Send Sync Step 2 back to client
-    // Format: varUint(1) • varByteArray(update)
+    // Format: varUint(0) • varUint(1) • varByteArray(update)
     let mut response = Vec::new();
-    encode_var_uint(&mut response, 1)?; // Message type
+    encode_var_uint(&mut response, 0)?; // Sync protocol marker
+    encode_var_uint(&mut response, 1)?; // Message type (Sync Step 2)
     encode_var_uint(&mut response, update.len() as u32)?; // Payload length
     response.extend_from_slice(&update);
 
@@ -351,8 +373,9 @@ async fn handle_update(
     save_document(state, &guid, &doc_obj).await?;
 
     // Broadcast update to other clients
-    // Format: varUint(2) • varByteArray(update)
+    // Format: varUint(0) • varUint(2) • varByteArray(update)
     let mut broadcast_msg = Vec::new();
+    encode_var_uint(&mut broadcast_msg, 0)?; // Sync protocol marker
     encode_var_uint(&mut broadcast_msg, 2)?; // Message type 2 = Update
     encode_var_uint(&mut broadcast_msg, update_bytes.len() as u32)?; // Payload length
     broadcast_msg.extend_from_slice(update_bytes);
