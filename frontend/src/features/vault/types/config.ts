@@ -5,7 +5,6 @@ export interface VaultConfig {
     syncEnabled: boolean
     createdAt: number
     lastOpened?: number
-    lastOpenedDocumentId?: string
 }
 
 export interface AppConfig {
