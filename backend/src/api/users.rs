@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, put},
+    routing::get,
 };
 use serde::Deserialize;
 use uuid::Uuid;

@@ -166,7 +166,7 @@
         @apply rounded-sm border px-1 py-0.5 font-mono text-base font-medium leading-none;
     }
     pre:has(code) {
-        @apply my-4 max-h-[600px] overflow-auto rounded-lg border p-4 font-mono text-sm font-medium;
+        @apply my-4 max-h-150 overflow-auto rounded-lg border p-4 font-mono text-sm font-medium;
     }
     hr {
         @apply mt-4 mb-6 border-t;
