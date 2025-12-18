@@ -347,17 +347,16 @@ async fn handle_sync_step1(
     // Load document from database
     let doc_obj = load_or_create_document(state, &guid).await?;
 
-    // Send full state to client (not just diff)
-    // The state_vector is what the client has, but we send the full state anyway
+    // Send diff to client
     let update = {
         let txn = doc_obj.transact();
-        let full_state = txn.encode_state_as_update_v1(&StateVector::default());
+        let diff = txn.encode_diff_v1(&state_vector);
         tracing::debug!(
-            "Sending full state: {} bytes (client has state_vector with {} bytes)",
-            full_state.len(),
-            state_vector.len()
+            "Sending diff: {} bytes (client state_vector: {:?})",
+            diff.len(),
+            &state_vector
         );
-        full_state
+        diff
     };
 
     // Send Sync Step 2 back to client
