@@ -17,42 +17,49 @@ export function FontSelector() {
     }
 
     if (!isLoaded) {
-        return <div className="text-sm text-muted-foreground">Loading fonts...</div>
+        return (
+            <div className="text-sm text-muted-foreground">
+                Loading fonts...
+            </div>
+        )
     }
 
     return (
         <div className="space-y-3">
-            {(Object.entries(FONTS) as [FontFamily, typeof FONTS[FontFamily]][]).map(
-                ([fontKey, fontConfig]) => (
+            {(
+                Object.entries(FONTS) as [
+                    FontFamily,
+                    (typeof FONTS)[FontFamily]
+                ][]
+            ).map(([fontKey, fontConfig]) => (
+                <div
+                    key={fontKey}
+                    onClick={() => handleFontChange(fontKey)}
+                    className={`cursor-pointer p-4 rounded-lg border transition-colors ${
+                        selectedFont === fontKey
+                            ? 'border bg-muted'
+                            : 'border-border hover:bg-muted'
+                    }`}
+                >
                     <div
-                        key={fontKey}
-                        onClick={() => handleFontChange(fontKey)}
-                        className={`cursor-pointer p-4 rounded-lg border transition-colors ${
-                            selectedFont === fontKey
-                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
-                                : 'border-border hover:bg-muted'
-                        }`}
+                        className="mb-2"
+                        style={{ fontFamily: fontConfig.stack }}
                     >
-                        <div
-                            className="mb-2"
-                            style={{ fontFamily: fontConfig.stack }}
-                        >
-                            <p className="font-semibold text-base">
-                                {fontConfig.name}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                                {fontConfig.description}
-                            </p>
-                        </div>
-                        <p
-                            className="text-sm text-foreground/70"
-                            style={{ fontFamily: fontConfig.stack }}
-                        >
-                            The quick brown fox jumps over the lazy dog
+                        <p className="font-semibold text-base">
+                            {fontConfig.name}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                            {fontConfig.description}
                         </p>
                     </div>
-                )
-            )}
+                    <p
+                        className="text-sm text-foreground/70"
+                        style={{ fontFamily: fontConfig.stack }}
+                    >
+                        The quick brown fox jumps over the lazy dog
+                    </p>
+                </div>
+            ))}
         </div>
     )
 }

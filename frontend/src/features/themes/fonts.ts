@@ -3,13 +3,18 @@ import '@fontsource/atkinson-hyperlegible'
 import '@fontsource/tasa-orbiter'
 import '@fontsource/unifont'
 import '@fontsource/libre-baskerville'
+import '@fontsource-variable/cormorant-garamond'
 
 export type FontFamily =
     | 'default'
     | 'inter'
     | 'tasa-orbiter'
     | 'atkinson-hyperlegible'
-export type EditorFont = 'default' | 'libre-baskerville' | 'unifont'
+export type EditorFont =
+    | 'default'
+    | 'cormorant-garamond'
+    | 'unifont'
+    | FontFamily
 
 export const FONTS: Record<
     FontFamily,
@@ -46,15 +51,30 @@ export const EDITOR_FONTS: Record<
         description: 'System default serif',
         stack: 'Georgia, "Times New Roman", serif'
     },
-    'libre-baskerville': {
-        name: 'Libre Baskerville',
+    'cormorant-garamond': {
+        name: 'Cormorant Garamond',
         description: 'Classic, elegant serif',
-        stack: '"Libre Baskerville", Georgia, serif'
+        stack: '"Cormorant Garamond Variable", Georgia, serif'
     },
     unifont: {
         name: 'Unifont',
         description: 'Monospace, unicode font',
         stack: '"Unifont", monospace'
+    },
+    inter: {
+        name: 'Inter',
+        description: 'Modern, geometric sans-serif',
+        stack: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    },
+    'tasa-orbiter': {
+        name: 'TASA Orbiter',
+        description: 'Distinctive, technical typeface',
+        stack: '"TASA Orbiter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    },
+    'atkinson-hyperlegible': {
+        name: 'Atkinson Hyperlegible',
+        description: 'Highly legible typeface for accessibility',
+        stack: '"Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, sans-serif'
     }
 }
 
