@@ -56,6 +56,9 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const currentVault = useConfigStore((state) => state.getCurrentVault())
     const authToken = useConfigStore((state) => state.authToken)
 
+    console.log('BlockSuiteEditor: currentVault', currentVault)
+    console.log('BlockSuiteEditor: vaultId to pass', currentVault?.id)
+
     const { connected: serverConnected, synced: serverSynced } = useServerSync({
         ydoc,
         documentId: document.id,
