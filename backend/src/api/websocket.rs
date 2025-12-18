@@ -5,11 +5,13 @@ use axum::{
         Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
+    http::StatusCode,
     response::Response,
 };
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::broadcast;
+use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
@@ -61,10 +63,61 @@ pub async fn ws_handler(
     State(state): State<AppState>,
     Query(query): Query<HashMap<String, String>>,
     Path(doc): Path<String>,
-) -> Response {
+) -> Result<Response, StatusCode> {
     // Log the raw path doc and query params received at upgrade so we can confirm what the router provided
     tracing::info!("ws upgrade for doc path param: {:?}", doc);
     tracing::debug!("ws upgrade query params: {:?}", query);
+
+    // Extract and validate JWT token from query parameters
+    let token = query.get("token").ok_or_else(|| {
+        tracing::warn!("WebSocket connection attempt without token");
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    let claims = crate::auth::validate_token(token, &state.config.jwt_secret).map_err(|e| {
+        tracing::warn!("Invalid token: {:?}", e);
+        StatusCode::UNAUTHORIZED
+    })?;
+
+    let user_id = claims.sub;
+
+    // Extract vault_id from query parameters
+    let vault_id_str = query.get("vaultId").ok_or_else(|| {
+        tracing::warn!("WebSocket connection attempt without vaultId");
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let vault_id = Uuid::parse_str(vault_id_str).map_err(|_| {
+        tracing::warn!("Invalid vault_id format: {}", vault_id_str);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    // Verify vault ownership: user must own the vault
+    sqlx::query!(
+        "SELECT id FROM vaults WHERE id = $1 AND user_id = $2",
+        vault_id,
+        user_id
+    )
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error checking vault ownership: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or_else(|| {
+        tracing::warn!(
+            "User {} attempted to access vault {} they don't own",
+            user_id,
+            vault_id
+        );
+        StatusCode::FORBIDDEN
+    })?;
+
+    tracing::info!(
+        "WebSocket authenticated: user_id={}, vault_id={}",
+        user_id,
+        vault_id
+    );
 
     // Prefer path param when present, otherwise fallback to ?doc=<id> query parameter
     let path_doc = if !doc.is_empty() {
@@ -73,21 +126,21 @@ pub async fn ws_handler(
         query.get("doc").cloned()
     };
 
-    let vault_id = query.get("vaultId").cloned();
-
-    ws.on_upgrade(move |socket| handle_socket(socket, state, path_doc, vault_id))
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, path_doc, vault_id, user_id)))
 }
 
 async fn handle_socket(
     socket: WebSocket,
     state: AppState,
     doc: Option<String>,
-    vault_id: Option<String>,
+    vault_id: Uuid,
+    user_id: Uuid,
 ) {
     tracing::info!(
-        "WebSocket connection established, doc: {:?}, vault_id: {:?}",
+        "WebSocket connection established, doc: {:?}, vault_id={}, user_id={}",
         doc,
-        vault_id
+        vault_id,
+        user_id
     );
 
     let (mut sender, mut receiver) = socket.split();
@@ -116,7 +169,7 @@ async fn handle_socket(
                             tracing::warn!("Received Binary message with zero length");
                         }
 
-                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, &vault_id).await {
+                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, vault_id, user_id).await {
                             Ok(_) => tracing::debug!("Message handled successfully"),
                             Err(e) => {
                                 tracing::error!("Error handling binary message: {:?}", e);
@@ -213,7 +266,8 @@ async fn handle_binary_message(
     data: &[u8],
     subscriptions: &mut HashMap<String, broadcast::Receiver<Vec<u8>>>,
     doc: &Option<String>,
-    vault_id: &Option<String>,
+    vault_id: Uuid,
+    user_id: Uuid,
 ) -> anyhow::Result<()> {
     // Yjs y-protocols message format:
     // varUint(syncProtocolMessageType) • varUint(messageType) • varByteArray(payload)
@@ -282,7 +336,7 @@ async fn handle_binary_message(
         match msg_type {
             0 => {
                 // Sync Step 1: Client sends state vector
-                handle_sync_step1(sender, state, payload, subscriptions, doc).await?;
+                handle_sync_step1(sender, state, payload, subscriptions, doc, vault_id).await?;
             }
             1 => {
                 // Sync Step 2 is normally server -> client only. If we receive a msg_type=1 from a client,
@@ -294,7 +348,7 @@ async fn handle_binary_message(
             }
             2 => {
                 // Update: Client sends incremental update
-                handle_update(sender, state, payload, doc, vault_id).await?;
+                handle_update(sender, state, payload, doc, vault_id, user_id).await?;
             }
             _ => {
                 tracing::warn!("Unknown sync message type: {}", msg_type);
@@ -345,6 +399,7 @@ async fn handle_sync_step1(
     payload: &[u8],
     subscriptions: &mut HashMap<String, broadcast::Receiver<Vec<u8>>>,
     doc: &Option<String>,
+    vault_id: Uuid,
 ) -> anyhow::Result<()> {
     // Payload is the state vector (already decoded as varByteArray by caller)
     let state_vector_bytes = payload;
@@ -359,16 +414,17 @@ async fn handle_sync_step1(
     };
 
     tracing::info!(
-        "Sync step 1 for document: {} (state_vector {} bytes)",
+        "Sync step 1 for document: {} in vault {} (state_vector {} bytes)",
         guid,
+        vault_id,
         state_vector_bytes.len()
     );
 
     // Decode state vector
     let state_vector = StateVector::decode_v1(state_vector_bytes)?;
 
-    // Load document from database
-    let doc_obj = load_or_create_document(state, &guid).await?;
+    // Load document from database (verifies it belongs to this vault)
+    let doc_obj = load_or_create_document(state, &guid, vault_id).await?;
 
     // Send diff to client
     let update = {
@@ -419,7 +475,8 @@ async fn handle_update(
     state: &AppState,
     payload: &[u8],
     doc: &Option<String>,
-    vault_id: &Option<String>,
+    vault_id: Uuid,
+    user_id: Uuid,
 ) -> anyhow::Result<()> {
     tracing::debug!("handle_update called with payload {} bytes", payload.len());
 
@@ -436,13 +493,14 @@ async fn handle_update(
     };
 
     tracing::info!(
-        "Incoming update for document: {} ({} bytes)",
+        "Incoming update for document: {} ({} bytes) from user {}",
         guid,
-        update_bytes.len()
+        update_bytes.len(),
+        user_id
     );
 
     // Load document from database
-    let doc_obj = load_or_create_document(state, &guid).await?;
+    let doc_obj = load_or_create_document(state, &guid, vault_id).await?;
 
     // Apply update to document
     let update = Update::decode_v1(update_bytes)?;
@@ -452,7 +510,7 @@ async fn handle_update(
     }
 
     // Save updated document to database
-    save_document(state, &guid, &doc_obj, vault_id).await?;
+    save_document(state, &guid, &doc_obj, vault_id, user_id).await?;
 
     // Broadcast update to other clients
     // Format: varUint(0) • varUint(2) • varByteArray(update)
@@ -484,14 +542,23 @@ async fn handle_awareness(
 }
 
 // Load document from database, or create new one if doesn't exist
-async fn load_or_create_document(state: &AppState, guid: &str) -> anyhow::Result<Doc> {
-    // Try to load from database
-    let result = sqlx::query!("SELECT yjs_state FROM subdocs WHERE guid = $1", guid)
-        .fetch_optional(&state.pool)
-        .await?;
+// Verifies document belongs to the specified vault
+async fn load_or_create_document(
+    state: &AppState,
+    guid: &str,
+    vault_id: Uuid,
+) -> anyhow::Result<Doc> {
+    // Try to load from database, verifying it belongs to this vault
+    let result = sqlx::query!(
+        "SELECT yjs_state FROM subdocs WHERE guid = $1 AND vault_id = $2",
+        guid,
+        vault_id
+    )
+    .fetch_optional(&state.pool)
+    .await?;
 
     if let Some(record) = result {
-        // Document exists, load it
+        // Document exists and belongs to this vault, load it
         let doc = Doc::new();
         let update = Update::decode_v1(&record.yjs_state)?;
         {
@@ -499,12 +566,12 @@ async fn load_or_create_document(state: &AppState, guid: &str) -> anyhow::Result
             txn.apply_update(update)?;
         }
 
-        tracing::debug!("Loaded document {} from database", guid);
+        tracing::debug!("Loaded document {} from vault {}", guid, vault_id);
         Ok(doc)
     } else {
         // Document doesn't exist, create new one
         let doc = Doc::new();
-        tracing::debug!("Created new document {}", guid);
+        tracing::debug!("Created new document {} for vault {}", guid, vault_id);
         Ok(doc)
     }
 }
@@ -514,22 +581,15 @@ async fn save_document(
     state: &AppState,
     guid: &str,
     doc: &Doc,
-    vault_id: &Option<String>,
+    vault_id: Uuid,
+    user_id: Uuid,
 ) -> anyhow::Result<()> {
     tracing::debug!(
-        "save_document called for guid: {}, vault_id: {:?}",
+        "save_document called for guid: {}, vault_id: {}, user_id: {}",
         guid,
-        vault_id
+        vault_id,
+        user_id
     );
-
-    // Parse vault_id UUID
-    let vault_uuid = match vault_id {
-        Some(id_str) => uuid::Uuid::parse_str(id_str)?,
-        None => {
-            tracing::warn!("No vault_id provided, cannot save document");
-            return Err(anyhow::anyhow!("vault_id is required"));
-        }
-    };
 
     let (state_bytes, state_vector_bytes) = {
         let txn = doc.transact();
@@ -547,7 +607,7 @@ async fn save_document(
     tracing::debug!(
         "Executing INSERT OR UPDATE query for guid: {} with vault_id: {}",
         guid,
-        vault_uuid
+        vault_id
     );
     let result = sqlx::query!(
         r#"
@@ -557,7 +617,7 @@ async fn save_document(
         SET yjs_state = $4, state_vector = $5, modified_at = NOW()
         "#,
         guid,
-        vault_uuid,
+        vault_id,
         "document",
         state_bytes,
         state_vector_bytes,
@@ -566,8 +626,10 @@ async fn save_document(
     .await?;
 
     tracing::info!(
-        "Saved document {} to database (rows affected: {})",
+        "Saved document {} to vault {} by user {} (rows affected: {})",
         guid,
+        vault_id,
+        user_id,
         result.rows_affected()
     );
     Ok(())
