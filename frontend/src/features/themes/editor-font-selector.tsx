@@ -70,7 +70,7 @@ export function EditorFontSelector() {
                     onClick={() => handleFontChange(fontKey)}
                     className={`cursor-pointer p-4 rounded-lg border transition-colors ${
                         selectedFont === fontKey
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                            ? 'border bg-muted'
                             : 'border-border hover:bg-muted'
                     }`}
                 >

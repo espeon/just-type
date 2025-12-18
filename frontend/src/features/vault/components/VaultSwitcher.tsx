@@ -93,6 +93,42 @@ export function VaultSwitcher() {
         }
     }
 
+    const handleToggleSync = async (vaultId: string, e: React.MouseEvent) => {
+        e.stopPropagation()
+        const vault = vaults.find((v) => v.id === vaultId)
+        if (!vault) return
+
+        try {
+            if (vault.syncEnabled) {
+                // Disable sync
+                const { updateVault } = useConfigStore.getState()
+                updateVault(vaultId, { syncEnabled: false })
+            } else {
+                // Enable sync - need to create on server first
+                if (!userId) {
+                    alert('you must be logged in to enable sync')
+                    return
+                }
+
+                try {
+                    const serverVault = await vaultsApi.create({
+                        name: vault.name
+                    })
+                    const { updateVault } = useConfigStore.getState()
+                    updateVault(vaultId, {
+                        syncEnabled: true,
+                        id: serverVault.id
+                    })
+                } catch (error) {
+                    console.error('Failed to create vault on server:', error)
+                    alert('Failed to enable sync on server')
+                }
+            }
+        } catch (error) {
+            console.error('Failed to toggle sync:', error)
+        }
+    }
+
     const handleDeleteVault = (vaultId: string, e: React.MouseEvent) => {
         e.stopPropagation()
         if (
@@ -146,7 +182,7 @@ export function VaultSwitcher() {
                             onClick={() => handleSwitchVault(vault.id)}
                             className="flex items-center justify-between"
                         >
-                            <div className="flex flex-col">
+                            <div className="flex flex-col flex-1">
                                 <span className="font-medium">
                                     {vault.name}{' '}
                                     {vault.syncEnabled ? (
@@ -161,18 +197,32 @@ export function VaultSwitcher() {
                                     {vault.localPath}
                                 </span>
                             </div>
-                            {vault.id !== currentVaultId && (
+                            <div className="flex gap-1">
                                 <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={(e) =>
-                                        handleDeleteVault(vault.id, e)
+                                        handleToggleSync(vault.id, e)
                                     }
-                                    className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                                    className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                                 >
-                                    remove
+                                    {vault.syncEnabled
+                                        ? 'disable sync'
+                                        : 'enable sync'}
                                 </Button>
-                            )}
+                                {vault.id !== currentVaultId && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) =>
+                                            handleDeleteVault(vault.id, e)
+                                        }
+                                        className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                                    >
+                                        remove
+                                    </Button>
+                                )}
+                            </div>
                         </DropdownMenuItem>
                     ))}
                     <DropdownMenuSeparator />
