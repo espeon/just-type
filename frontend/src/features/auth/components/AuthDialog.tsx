@@ -21,6 +21,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     const [mode, setMode] = useState<'login' | 'register'>('login')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [username, setUsername] = useState('')
+    const [displayName, setDisplayName] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -33,13 +35,22 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
             if (mode === 'login') {
                 await login(email, password)
             } else {
-                await register(email, password)
+                await register(
+                    email,
+                    password,
+                    username || undefined,
+                    displayName || undefined
+                )
             }
             onOpenChange(false)
             setEmail('')
             setPassword('')
+            setUsername('')
+            setDisplayName('')
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'authentication failed')
+            setError(
+                err instanceof Error ? err.message : 'authentication failed'
+            )
         } finally {
             setIsLoading(false)
         }
@@ -48,6 +59,8 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
     const toggleMode = () => {
         setMode(mode === 'login' ? 'register' : 'login')
         setError(null)
+        setUsername('')
+        setDisplayName('')
     }
 
     return (
@@ -86,6 +99,38 @@ export function AuthDialog({ open, onOpenChange }: AuthDialogProps) {
                             required
                         />
                     </div>
+                    {mode === 'register' && (
+                        <>
+                            <div className="space-y-2">
+                                <Label htmlFor="username">
+                                    username (optional)
+                                </Label>
+                                <Input
+                                    id="username"
+                                    type="text"
+                                    value={username}
+                                    onChange={(e) =>
+                                        setUsername(e.target.value)
+                                    }
+                                    placeholder="@yourname"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="displayName">
+                                    display name (optional)
+                                </Label>
+                                <Input
+                                    id="displayName"
+                                    type="text"
+                                    value={displayName}
+                                    onChange={(e) =>
+                                        setDisplayName(e.target.value)
+                                    }
+                                    placeholder="Your Name"
+                                />
+                            </div>
+                        </>
+                    )}
                     {error && (
                         <div className="text-sm text-destructive">{error}</div>
                     )}

@@ -1,6 +1,9 @@
 export interface User {
     id: string
     email: string
+    username?: string
+    display_name?: string
+    avatar_url?: string
     created_at: string
 }
 
@@ -12,6 +15,8 @@ export interface AuthResponse {
 export interface RegisterRequest {
     email: string
     password: string
+    username?: string
+    display_name?: string
 }
 
 export interface LoginRequest {
@@ -50,7 +55,32 @@ export interface VaultMember {
     joined_at: string
 }
 
-export interface AddVaultMemberRequest {
+export interface VaultMemberWithProfile {
+    id: string
+    vault_id: string
     user_id: string
+    role: string
+    joined_at: string
+    username?: string
+    display_name?: string
+    avatar_url?: string
+}
+
+export interface PublicUserProfile {
+    id: string
+    username?: string
+    display_name?: string
+    avatar_url?: string
+}
+
+export interface UpdateProfileRequest {
+    username?: string
+    display_name?: string
+    avatar_url?: string
+}
+
+export interface AddVaultMemberRequest {
+    user_id?: string
+    username?: string
     role?: string
 }

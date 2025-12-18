@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         .route("/health", get(health_check))
         .route("/ws/{doc}", get(api::ws_handler))
         .nest("/api/auth", api::auth_routes())
+        .nest("/api/users", api::user_routes())
         .nest("/api/vaults", api::vault_routes())
         .layer(
             CorsLayer::new()

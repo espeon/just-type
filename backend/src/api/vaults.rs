@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::{
     api::auth::AppState,
     auth::jwt::Claims,
-    models::{DocumentMetadata, Vault, VaultMember},
+    models::{DocumentMetadata, Vault, VaultMember, VaultMemberWithProfile},
 };
 
 #[derive(Debug, Deserialize)]
@@ -179,7 +179,8 @@ async fn get_vault_documents_metadata(
 
 #[derive(Debug, Deserialize)]
 pub struct AddVaultMemberRequest {
-    pub user_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub username: Option<String>,
     pub role: Option<String>,
 }
 
@@ -190,6 +191,18 @@ pub struct VaultMemberResponse {
     pub user_id: Uuid,
     pub role: String,
     pub joined_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultMemberWithProfileResponse {
+    pub id: Uuid,
+    pub vault_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub joined_at: chrono::DateTime<chrono::Utc>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 impl From<VaultMember> for VaultMemberResponse {
@@ -204,11 +217,26 @@ impl From<VaultMember> for VaultMemberResponse {
     }
 }
 
+impl From<VaultMemberWithProfile> for VaultMemberWithProfileResponse {
+    fn from(member: VaultMemberWithProfile) -> Self {
+        Self {
+            id: member.id,
+            vault_id: member.vault_id,
+            user_id: member.user_id,
+            role: member.role,
+            joined_at: member.joined_at,
+            username: member.username,
+            display_name: member.display_name,
+            avatar_url: member.avatar_url,
+        }
+    }
+}
+
 async fn list_vault_members(
     State(state): State<AppState>,
     claims: Claims,
     Path(vault_id): Path<Uuid>,
-) -> Result<Json<Vec<VaultMemberResponse>>, StatusCode> {
+) -> Result<Json<Vec<VaultMemberWithProfileResponse>>, StatusCode> {
     // Verify user has access to vault (owner or member)
     let vault = sqlx::query_as::<_, Vault>(
         "SELECT v.id, v.user_id, v.name, v.created_at FROM vaults v
@@ -223,8 +251,13 @@ async fn list_vault_members(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    let members = sqlx::query_as::<_, VaultMember>(
-        "SELECT id, vault_id, user_id, role, invited_by, joined_at, created_at FROM vault_members WHERE vault_id = $1 ORDER BY joined_at ASC",
+    let members = sqlx::query_as::<_, VaultMemberWithProfile>(
+        "SELECT vm.id, vm.vault_id, vm.user_id, vm.role, vm.joined_at,
+                u.username, u.display_name, u.avatar_url
+         FROM vault_members vm
+         JOIN users u ON vm.user_id = u.id
+         WHERE vm.vault_id = $1
+         ORDER BY vm.joined_at ASC",
     )
     .bind(vault_id)
     .fetch_all(&state.pool)
@@ -232,7 +265,10 @@ async fn list_vault_members(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(
-        members.into_iter().map(VaultMemberResponse::from).collect(),
+        members
+            .into_iter()
+            .map(VaultMemberWithProfileResponse::from)
+            .collect(),
     ))
 }
 
@@ -241,7 +277,7 @@ async fn add_vault_member(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
     Json(req): Json<AddVaultMemberRequest>,
-) -> Result<Json<VaultMemberResponse>, StatusCode> {
+) -> Result<Json<VaultMemberWithProfileResponse>, StatusCode> {
     // Verify user is vault owner
     let vault = sqlx::query_as::<_, Vault>(
         "SELECT id, user_id, name, created_at FROM vaults WHERE id = $1 AND user_id = $2",
@@ -253,20 +289,47 @@ async fn add_vault_member(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Resolve user_id from username if provided
+    let target_user_id = if let Some(username) = req.username {
+        sqlx::query!("SELECT id FROM users WHERE username = $1", username)
+            .fetch_optional(&state.pool)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::NOT_FOUND)?
+            .id
+    } else if let Some(user_id) = req.user_id {
+        user_id
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
+
     let role = req.role.unwrap_or_else(|| "editor".to_string());
 
-    let member = sqlx::query_as::<_, VaultMember>(
-        "INSERT INTO vault_members (vault_id, user_id, role, invited_by) VALUES ($1, $2, $3, $4) RETURNING id, vault_id, user_id, role, invited_by, joined_at, created_at",
+    sqlx::query(
+        "INSERT INTO vault_members (vault_id, user_id, role, invited_by) VALUES ($1, $2, $3, $4)",
     )
     .bind(vault_id)
-    .bind(req.user_id)
-    .bind(role)
+    .bind(target_user_id)
+    .bind(&role)
     .bind(claims.sub)
-    .fetch_one(&state.pool)
+    .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::CONFLICT)?;
 
-    Ok(Json(VaultMemberResponse::from(member)))
+    let member = sqlx::query_as::<_, VaultMemberWithProfile>(
+        "SELECT vm.id, vm.vault_id, vm.user_id, vm.role, vm.joined_at,
+                u.username, u.display_name, u.avatar_url
+         FROM vault_members vm
+         JOIN users u ON vm.user_id = u.id
+         WHERE vm.vault_id = $1 AND vm.user_id = $2",
+    )
+    .bind(vault_id)
+    .bind(target_user_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(VaultMemberWithProfileResponse::from(member)))
 }
 
 async fn remove_vault_member(

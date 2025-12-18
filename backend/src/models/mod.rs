@@ -9,6 +9,9 @@ pub struct User {
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub created_at: DateTime<Utc>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -49,6 +52,8 @@ pub struct DocumentMetadata {
 pub struct RegisterRequest {
     pub email: String,
     pub password: String,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,6 +71,33 @@ pub struct VaultMember {
     pub invited_by: Option<Uuid>,
     pub joined_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileRequest {
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct PublicUserProfile {
+    pub id: Uuid,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct VaultMemberWithProfile {
+    pub id: Uuid,
+    pub vault_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub joined_at: DateTime<Utc>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

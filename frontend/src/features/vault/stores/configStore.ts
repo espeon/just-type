@@ -17,7 +17,12 @@ interface ConfigState extends AppConfig {
     setAuth: (userId: string, token: string) => void
     clearAuth: () => void
     login: (email: string, password: string) => Promise<void>
-    register: (email: string, password: string) => Promise<void>
+    register: (
+        email: string,
+        password: string,
+        username?: string,
+        displayName?: string
+    ) => Promise<void>
     getCurrentVault: () => VaultConfig | null
 }
 
@@ -94,8 +99,18 @@ export const useConfigStore = create<ConfigState>()(
                 get().setAuth(response.user.id, response.token)
             },
 
-            register: async (email: string, password: string) => {
-                const response = await authApi.register({ email, password })
+            register: async (
+                email: string,
+                password: string,
+                username?: string,
+                displayName?: string
+            ) => {
+                const response = await authApi.register({
+                    email,
+                    password,
+                    username,
+                    display_name: displayName
+                })
                 get().setAuth(response.user.id, response.token)
             },
 

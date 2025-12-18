@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ThemeSettings } from '@/features/themes/theme-settings'
 import { AuthDialog } from '@/features/auth/components/AuthDialog'
 import { VaultManagement } from '@/features/vault/components/VaultManagement'
+import { ProfileSettings } from '@/features/vault/components/ProfileSettings'
 import { useConfigStore } from '@/features/vault/stores/configStore'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -46,6 +47,10 @@ function RouteComponent() {
                             </div>
                         )}
                     </div>
+
+                    <Separator />
+
+                    {userId && <ProfileSettings />}
 
                     <Separator />
 
