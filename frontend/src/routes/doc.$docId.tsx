@@ -22,6 +22,11 @@ function DocumentPage() {
                 setIsLoading(true)
                 setError(null)
                 await useVaultStore.getState().openDocument(docId)
+
+                // Track this as the last opened document for this vault
+                useConfigStore.getState().updateVault(currentVault.id, {
+                    lastOpenedDocumentId: docId
+                })
             } catch (err) {
                 setError(String(err))
             } finally {

@@ -156,11 +156,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
             set({ isLoading: true, error: null })
             const document = await storage.readDocument(vault.localPath, id)
             set({ currentDocument: document })
-
-            // Track last opened document for this vault
-            useConfigStore.getState().updateVault(vault.id, {
-                lastOpenedDocumentId: id
-            })
         } catch (error) {
             set({ error: String(error) })
         } finally {
