@@ -363,6 +363,8 @@ async fn handle_update(
     payload: &[u8],
     doc: &Option<String>,
 ) -> anyhow::Result<()> {
+    tracing::debug!("handle_update called with payload {} bytes", payload.len());
+
     // Payload is the update (already decoded as varByteArray by caller)
     let update_bytes = payload;
 
@@ -451,15 +453,23 @@ async fn load_or_create_document(state: &AppState, guid: &str) -> anyhow::Result
 
 // Save document to database
 async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Result<()> {
+    tracing::debug!("save_document called for guid: {}", guid);
+
     let (state_bytes, state_vector_bytes) = {
         let txn = doc.transact();
         let state_bytes = txn.encode_state_as_update_v1(&StateVector::default());
         let state_vector_bytes = txn.state_vector().encode_v1();
+        tracing::debug!(
+            "Encoded state: {} bytes, state_vector: {} bytes",
+            state_bytes.len(),
+            state_vector_bytes.len()
+        );
         (state_bytes, state_vector_bytes)
     };
 
     // Insert or update document
-    sqlx::query!(
+    tracing::debug!("Executing INSERT OR UPDATE query for guid: {}", guid);
+    let result = sqlx::query!(
         r#"
         INSERT INTO subdocs (guid, vault_id, doc_type, yjs_state, state_vector, modified_at)
         VALUES ($1, $2, $3, $4, $5, NOW())
@@ -475,6 +485,10 @@ async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Resul
     .execute(&state.pool)
     .await?;
 
-    tracing::debug!("Saved document {} to database", guid);
+    tracing::info!(
+        "Saved document {} to database (rows affected: {})",
+        guid,
+        result.rows_affected()
+    );
     Ok(())
 }
