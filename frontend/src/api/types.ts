@@ -30,6 +30,13 @@ export interface ServerVault {
     created_at: string
 }
 
+export interface DeletedVault {
+    id: string
+    name: string
+    deleted_at: string
+    days_until_permanent_deletion: number
+}
+
 export interface CreateVaultRequest {
     name: string
 }

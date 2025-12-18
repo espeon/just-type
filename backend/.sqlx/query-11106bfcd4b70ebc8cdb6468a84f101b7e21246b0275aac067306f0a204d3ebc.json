@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            s.yjs_state,\n            s.created_at,\n            s.modified_at,\n            s.parent_guid,\n            s.doc_type,\n            m.title,\n            m.icon,\n            m.description,\n            COALESCE(m.tags, '{}') as tags\n        FROM subdocs s\n        LEFT JOIN subdoc_metadata m ON s.guid = m.subdoc_guid\n        WHERE s.guid = $1 AND s.vault_id = $2 AND s.deleted_at IS NULL\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "yjs_state",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "modified_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "doc_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "icon",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "tags",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "11106bfcd4b70ebc8cdb6468a84f101b7e21246b0275aac067306f0a204d3ebc"
+}

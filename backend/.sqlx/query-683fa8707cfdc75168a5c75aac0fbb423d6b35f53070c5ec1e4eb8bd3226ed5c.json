@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO subdoc_metadata (subdoc_guid, title, modified_at)\n        VALUES ($1, 'Untitled', NOW())\n        ON CONFLICT (subdoc_guid) DO UPDATE\n        SET modified_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "683fa8707cfdc75168a5c75aac0fbb423d6b35f53070c5ec1e4eb8bd3226ed5c"
+}

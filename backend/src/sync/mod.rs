@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
-use yrs::updates::decoder::Decode;
-use yrs::updates::encoder::Encode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 
 /// Manages active document sync sessions
 pub struct SyncManager {
@@ -53,25 +50,4 @@ impl Default for SyncManager {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Encode state vector for Yjs sync protocol
-pub fn encode_state_vector(doc: &Doc) -> Vec<u8> {
-    let txn = doc.transact();
-    let sv = txn.state_vector();
-    sv.encode_v1()
-}
-
-/// Encode state as update for Yjs sync protocol
-pub fn encode_state_as_update(doc: &Doc, sv: &StateVector) -> Vec<u8> {
-    let txn = doc.transact();
-    txn.encode_diff_v1(sv)
-}
-
-/// Apply update to document
-pub fn apply_update(doc: &Doc, update: &[u8]) -> Result<(), yrs::error::Error> {
-    let mut txn = doc.transact_mut();
-    let update = Update::decode_v1(update)?;
-    txn.apply_update(update)?;
-    Ok(())
 }

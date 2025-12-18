@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import {
     ServerVault,
+    DeletedVault,
     CreateVaultRequest,
     DocumentMetadata,
     VaultMember,
@@ -50,5 +51,13 @@ export const vaultsApi = {
         return apiClient.delete<void>(
             `/api/vaults/${vaultId}/members/${memberId}`
         )
+    },
+
+    listDeleted: async (): Promise<DeletedVault[]> => {
+        return apiClient.get<DeletedVault[]>('/api/vaults/deleted')
+    },
+
+    restore: async (vaultId: string): Promise<ServerVault> => {
+        return apiClient.post<ServerVault>(`/api/vaults/${vaultId}/restore`, {})
     }
 }

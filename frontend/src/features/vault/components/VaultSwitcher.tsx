@@ -125,7 +125,7 @@ export function VaultSwitcher() {
                             <span className="font-medium">
                                 {currentVault?.name || 'no vault'}
                                 {currentVault && currentVault.syncEnabled ? (
-                                    '•'
+                                    <LucideCloud className="inline-block ml-2 text-blue-500  mb-0.5" />
                                 ) : (
                                     <span className="px-2 py-0.5 bg-muted rounded-sm text-xs ml-2">
                                         local
@@ -157,7 +157,7 @@ export function VaultSwitcher() {
                                     )}
                                 </span>
                                 <span className="text-xs text-muted-foreground truncate max-w-50">
-                                    {vault.localPath}{' '}
+                                    {vault.localPath}
                                 </span>
                             </div>
                             {vault.id !== currentVaultId && (

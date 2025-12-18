@@ -64,12 +64,11 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                 </SidebarContent>
                 <SidebarFooter>
                     <VaultSwitcher />
-                    <Separator />
-                    {userId && user && (
+                    {userId && user ? (
                         <>
                             <Link
                                 to={'/settings'}
-                                className="flex items-center gap-2 p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                                className="flex items-center gap-2 p-2 rounded-md bg-background border hover:bg-muted transition"
                             >
                                 <div
                                     className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${getAvatarColor(
@@ -105,15 +104,10 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                                     </p>
                                 </div>
                             </Link>
-                            <Separator />
                         </>
+                    ) : (
+                        <Link to="/settings">settings</Link>
                     )}
-                    <Link
-                        to={'/settings'}
-                        className="p-2 text-sm text-muted-foreground hover:text-foreground transition"
-                    >
-                        settings
-                    </Link>
                 </SidebarFooter>
             </Sidebar>
             <SidebarInset>

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO subdocs (guid, vault_id, doc_type, yjs_state, state_vector, modified_at)\n        VALUES ($1, $2, $3, $4, $5, NOW())\n        ON CONFLICT (guid) DO UPDATE\n        SET yjs_state = $4, state_vector = $5, modified_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35cd59dc99241351dc81c13f5d2f11a1b499d3372901453e2876e515ba1ea963"
+}

@@ -40,6 +40,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [descriptionValue, setDescriptionValue] = useState(
         document.metadata.description || ''
     )
+    const [titleValue, setTitleValue] = useState(document.metadata.title || '')
     const [commandPopoverOpen, setCommandPopoverOpen] = useState(false)
     const [insertBefore, setInsertBefore] = useState(false)
     const [syncError, setSyncError] = useState<string | null>(null)
@@ -170,9 +171,26 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                         })
                                     }}
                                 />
-                                <h1 className="text-3xl font-bold">
-                                    {document.metadata.title}
-                                </h1>
+                                <Input
+                                    type="text"
+                                    variant="ghost"
+                                    placeholder="add a title..."
+                                    value={titleValue}
+                                    onChange={(e) =>
+                                        setTitleValue(e.target.value)
+                                    }
+                                    onBlur={async () => {
+                                        if (
+                                            descriptionValue !==
+                                            document.metadata.description
+                                        ) {
+                                            await updateMetadata(document.id, {
+                                                description: descriptionValue
+                                            })
+                                        }
+                                    }}
+                                    className="text-xl md:text-3xl font-bold max-w-lg pl-2"
+                                />
                             </div>
 
                             <Input
@@ -310,8 +328,11 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                                     : (dragHandleNodePos.current ||
                                                           0) + node.nodeSize
 
+                                                let content:
+                                                    | JSONContent
+                                                    | undefined
+
                                                 // create content based on command type
-                                                let content: JSONContent
                                                 if (
                                                     cmd.title.includes(
                                                         'Heading'
@@ -386,14 +407,9 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                                     content = {
                                                         type: 'horizontalRule'
                                                     }
-                                                } else if (
-                                                    cmd.title === 'Columns'
-                                                ) {
-                                                    editor
-                                                        .chain()
-                                                        .focus()
-                                                        .setColumns()
-                                                        .run()
+                                                }
+
+                                                if (!content) {
                                                     return
                                                 }
 

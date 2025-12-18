@@ -3,6 +3,7 @@ import { ThemeSettings } from '@/features/themes/theme-settings'
 import { AuthDialog } from '@/features/auth/components/AuthDialog'
 import { VaultManagement } from '@/features/vault/components/VaultManagement'
 import { ProfileSettings } from '@/features/vault/components/ProfileSettings'
+import { DeletedVaults } from '@/features/vault/components/DeletedVaults'
 import { useConfigStore } from '@/features/vault/stores/configStore'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
@@ -55,6 +56,15 @@ function RouteComponent() {
                     <Separator />
 
                     <VaultManagement />
+
+                    <Separator />
+
+                    <div>
+                        <h2 className="text-xl font-semibold mb-2">
+                            deleted vaults
+                        </h2>
+                        <DeletedVaults />
+                    </div>
 
                     <Separator />
 

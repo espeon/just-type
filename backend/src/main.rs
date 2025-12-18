@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod cleanup;
 mod config;
 mod db;
 mod models;
@@ -34,6 +35,11 @@ async fn main() -> Result<()> {
 
     // Initialize database
     let pool = db::init(&config.database_url).await?;
+
+    // Start background cleanup job
+    // new thread
+    let pool_clone = pool.clone();
+    tokio::spawn(async move { cleanup::start_cleanup_job(pool_clone).await });
 
     // Initialize sync manager
     let sync_manager = std::sync::Arc::new(sync::SyncManager::new());

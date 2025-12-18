@@ -232,9 +232,6 @@ async fn handle_socket(
                         tracing::info!("WebSocket closed");
                         break;
                     }
-                    _ => {
-                        tracing::debug!("Received other WebSocket message variant");
-                    }
                 }
             }
 
@@ -610,7 +607,7 @@ async fn load_or_create_document(
             COALESCE(m.tags, '{}') as tags
         FROM subdocs s
         LEFT JOIN subdoc_metadata m ON s.guid = m.subdoc_guid
-        WHERE s.guid = $1 AND s.vault_id = $2
+        WHERE s.guid = $1 AND s.vault_id = $2 AND s.deleted_at IS NULL
         "#,
         guid,
         vault_id

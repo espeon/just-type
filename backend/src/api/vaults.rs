@@ -39,7 +39,9 @@ impl From<Vault> for VaultResponse {
 pub fn vault_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_vaults).post(create_vault))
+        .route("/deleted", get(list_deleted_vaults))
         .route("/{vault_id}", get(get_vault).delete(delete_vault))
+        .route("/{vault_id}/restore", post(restore_vault))
         .route(
             "/{vault_id}/documents/metadata",
             get(get_vault_documents_metadata),
@@ -59,7 +61,7 @@ async fn list_vaults(
     claims: Claims,
 ) -> Result<Json<Vec<VaultResponse>>, StatusCode> {
     let vaults = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at FROM vaults WHERE user_id = $1 ORDER BY created_at DESC",
+        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC",
     )
     .bind(claims.sub)
     .fetch_all(&state.pool)
@@ -75,7 +77,7 @@ async fn create_vault(
     Json(req): Json<CreateVaultRequest>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
     let vault = sqlx::query_as::<_, Vault>(
-        "INSERT INTO vaults (id, user_id, name) VALUES ($1, $2, $3) RETURNING id, user_id, name, created_at",
+        "INSERT INTO vaults (id, user_id, name) VALUES ($1, $2, $3) RETURNING id, user_id, name, created_at, deleted_at, deleted_by",
     )
     .bind(Uuid::new_v4())
     .bind(claims.sub)
@@ -93,8 +95,8 @@ async fn get_vault(
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at FROM vaults v
-         WHERE v.id = $1 AND (v.user_id = $2 OR EXISTS (
+        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
+         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
             SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
          ))",
     )
@@ -113,16 +115,30 @@ async fn delete_vault(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let result = sqlx::query("DELETE FROM vaults WHERE id = $1 AND user_id = $2")
-        .bind(vault_id)
-        .bind(claims.sub)
-        .execute(&state.pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Soft delete the vault
+    let result = sqlx::query(
+        "UPDATE vaults SET deleted_at = NOW(), deleted_by = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL",
+    )
+    .bind(claims.sub)
+    .bind(vault_id)
+    .bind(claims.sub)
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if result.rows_affected() == 0 {
         return Err(StatusCode::NOT_FOUND);
     }
+
+    // Soft delete all subdocs in the vault
+    sqlx::query(
+        "UPDATE subdocs SET deleted_at = NOW(), deleted_by = $1 WHERE vault_id = $2 AND deleted_at IS NULL",
+    )
+    .bind(claims.sub)
+    .bind(vault_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -133,8 +149,8 @@ async fn get_vault_documents_metadata(
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<DocumentMetadata>>, StatusCode> {
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at FROM vaults v
-         WHERE v.id = $1 AND (v.user_id = $2 OR EXISTS (
+        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
+         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
             SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
          ))",
     )
@@ -150,7 +166,7 @@ async fn get_vault_documents_metadata(
                 m.title, m.icon, m.description, m.tags
          FROM subdocs s
          LEFT JOIN subdoc_metadata m ON s.guid = m.subdoc_guid
-         WHERE s.vault_id = $1
+         WHERE s.vault_id = $1 AND s.deleted_at IS NULL
          ORDER BY s.created_at ASC",
         vault_id
     )
@@ -239,8 +255,8 @@ async fn list_vault_members(
 ) -> Result<Json<Vec<VaultMemberWithProfileResponse>>, StatusCode> {
     // Verify user has access to vault (owner or member)
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at FROM vaults v
-         WHERE v.id = $1 AND (v.user_id = $2 OR EXISTS (
+        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
+         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
             SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
          ))",
     )
@@ -280,7 +296,7 @@ async fn add_vault_member(
 ) -> Result<Json<VaultMemberWithProfileResponse>, StatusCode> {
     // Verify user is vault owner
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at FROM vaults WHERE id = $1 AND user_id = $2",
+        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(vault_id)
     .bind(claims.sub)
@@ -339,7 +355,7 @@ async fn remove_vault_member(
 ) -> Result<StatusCode, StatusCode> {
     // Verify user is vault owner
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at FROM vaults WHERE id = $1 AND user_id = $2",
+        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     )
     .bind(vault_id)
     .bind(claims.sub)
@@ -360,4 +376,69 @@ async fn remove_vault_member(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn restore_vault(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(vault_id): Path<Uuid>,
+) -> Result<Json<VaultResponse>, StatusCode> {
+    // Restore the vault
+    let vault = sqlx::query_as::<_, Vault>(
+        "UPDATE vaults SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL RETURNING id, user_id, name, created_at, deleted_at, deleted_by",
+    )
+    .bind(vault_id)
+    .bind(claims.sub)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Restore all subdocs in the vault
+    sqlx::query(
+        "UPDATE subdocs SET deleted_at = NULL, deleted_by = NULL WHERE vault_id = $1 AND deleted_at IS NOT NULL",
+    )
+    .bind(vault_id)
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(VaultResponse::from(vault)))
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeletedVaultResponse {
+    pub id: Uuid,
+    pub name: String,
+    pub deleted_at: chrono::DateTime<chrono::Utc>,
+    pub days_until_permanent_deletion: i64,
+}
+
+async fn list_deleted_vaults(
+    State(state): State<AppState>,
+    claims: Claims,
+) -> Result<Json<Vec<DeletedVaultResponse>>, StatusCode> {
+    let vaults = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE user_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+    )
+    .bind(claims.sub)
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let response: Vec<DeletedVaultResponse> = vaults
+        .into_iter()
+        .filter_map(|v| {
+            let deleted_at = v.deleted_at?;
+            let days_until_permanent = 30 - (chrono::Utc::now() - deleted_at).num_days();
+            Some(DeletedVaultResponse {
+                id: v.id,
+                name: v.name,
+                deleted_at,
+                days_until_permanent_deletion: days_until_permanent.max(0),
+            })
+        })
+        .collect();
+
+    Ok(Json(response))
 }

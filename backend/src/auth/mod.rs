@@ -1,7 +1,7 @@
 pub mod jwt;
 mod password;
 
-pub use jwt::{Claims, generate_token, validate_token};
+pub use jwt::{generate_token, validate_token};
 pub use password::{hash_password, verify_password};
 
 use crate::models::{AuthResponse, LoginRequest, RegisterRequest, User};

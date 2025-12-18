@@ -4,7 +4,6 @@ import { useVaultStore } from '../stores/vaultStore'
 import { vaultsApi } from '@/api/vaults'
 import { VaultSharingDialog } from './VaultSharingDialog'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import { Trash2, Share2 } from 'lucide-react'
 import {
     Dialog,

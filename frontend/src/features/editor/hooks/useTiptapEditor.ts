@@ -37,7 +37,7 @@ export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
                 class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8'
             }
         },
-        onUpdate: ({ editor }) => {
+        onUpdate: () => {
             console.log('Tiptap editor update fired, ydoc updates:', ydoc)
         }
     })

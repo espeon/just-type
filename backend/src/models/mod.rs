@@ -20,6 +20,8 @@ pub struct Vault {
     pub user_id: Uuid,
     pub name: String,
     pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -32,6 +34,8 @@ pub struct Subdoc {
     pub state_vector: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub modified_at: DateTime<Utc>,
+    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_by: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

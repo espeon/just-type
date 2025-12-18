@@ -15,7 +15,7 @@ pub fn user_routes() -> Router<AppState> {
     Router::new()
         .route("/me", get(get_current_user).put(update_profile))
         .route("/search", get(search_users))
-        .route("/:user_id", get(get_user_profile))
+        .route("/{user_id}", get(get_user_profile))
 }
 
 #[derive(Debug, Deserialize)]

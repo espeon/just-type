@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.guid, s.vault_id, s.doc_type, s.parent_guid, s.created_at, s.modified_at,\n                m.title, m.icon, m.description, m.tags\n         FROM subdocs s\n         LEFT JOIN subdoc_metadata m ON s.guid = m.subdoc_guid\n         WHERE s.vault_id = $1 AND s.deleted_at IS NULL\n         ORDER BY s.created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "vault_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "doc_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "modified_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "icon",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "tags",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fee7141d3890f235f9d5c5dcfa1824a7fae6c85b15124cd9f3772cd2fd281753"
+}
