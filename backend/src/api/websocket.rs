@@ -361,6 +361,18 @@ async fn handle_sync_step1(
     encode_var_uint(&mut response, update.len() as u32)?; // Payload length
     response.extend_from_slice(&update);
 
+    // Log the response we're sending
+    let hex_dump = response[..std::cmp::min(64, response.len())]
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!(
+        "Sending SyncStep2: {} bytes total, first 64 bytes hex: {}",
+        response.len(),
+        hex_dump
+    );
+
     sender.send(Message::Binary(Bytes::from(response))).await?;
 
     // Subscribe this client to document updates
