@@ -45,13 +45,12 @@ export function VaultManagement() {
                 }
 
                 try {
-                    const serverVault = await vaultsApi.create({
+                    await vaultsApi.create({
                         name: vault.name
                     })
-                    updateVault(vaultId, {
-                        syncEnabled: true,
-                        id: serverVault.id
-                    })
+                    // Just enable sync - keep the local vault ID the same
+                    // The server will use its own ID internally
+                    updateVault(vaultId, { syncEnabled: true })
                 } catch (error) {
                     console.error('Failed to create vault on server:', error)
                     alert('Failed to enable sync on server')
