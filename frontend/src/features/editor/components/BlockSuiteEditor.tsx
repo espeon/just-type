@@ -42,6 +42,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     )
     const [commandPopoverOpen, setCommandPopoverOpen] = useState(false)
     const [insertBefore, setInsertBefore] = useState(false)
+    const [syncError, setSyncError] = useState<string | null>(null)
     const dragHandleNodePos = useRef<number | null>(null)
 
     console.log('Rendering BlockSuiteEditor for document', document.id)
@@ -64,7 +65,8 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
         documentId: document.id,
         vaultId: currentVault?.id,
         enabled: currentVault?.syncEnabled ?? false,
-        authToken
+        authToken,
+        onError: setSyncError
     })
 
     useEffect(() => {
@@ -134,6 +136,12 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
 
     return (
         <div className="h-full flex flex-col">
+            {syncError && (
+                <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">
+                    <p className="text-sm font-medium">Sync Error</p>
+                    <p className="text-sm">{syncError}</p>
+                </div>
+            )}
             <EditorBar
                 editorPath={[
                     { uuid: document.id, path: document.metadata.title }
