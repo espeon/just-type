@@ -23,6 +23,7 @@ import {
     DialogTitle
 } from '@/components/ui/dialog'
 import { ChevronsUpDown, LucideCloud } from 'lucide-react'
+import { useNavigate } from '@tanstack/react-router'
 
 export function VaultSwitcher() {
     const storage = useStorage()
@@ -34,10 +35,14 @@ export function VaultSwitcher() {
     const [newVaultName, setNewVaultName] = useState('')
     const [enableSync, setEnableSync] = useState(false)
 
+    const navi = useNavigate()
+
     const currentVault = vaults.find((v) => v.id === currentVaultId)
 
     const handleSwitchVault = async (vaultId: string) => {
         setCurrentVault(vaultId)
+        // redirect to root to reset any open routes/files (via navigator)
+        navi({ to: '/' })
         await loadVault()
     }
 
