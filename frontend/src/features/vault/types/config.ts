@@ -2,7 +2,6 @@ export interface VaultConfig {
     id: string
     name: string
     localPath: string
-    serverVaultId?: string
     syncEnabled: boolean
     createdAt: number
     lastOpened?: number

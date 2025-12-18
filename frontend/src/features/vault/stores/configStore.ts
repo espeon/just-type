@@ -8,7 +8,8 @@ interface ConfigState extends AppConfig {
     addVault: (
         name: string,
         localPath: string,
-        syncEnabled?: boolean
+        syncEnabled?: boolean,
+        vaultId?: string
     ) => VaultConfig
     removeVault: (vaultId: string) => void
     updateVault: (vaultId: string, updates: Partial<VaultConfig>) => void
@@ -28,10 +29,11 @@ export const useConfigStore = create<ConfigState>()(
             addVault: (
                 name: string,
                 localPath: string,
-                syncEnabled = false
+                syncEnabled = false,
+                vaultId?: string
             ) => {
                 const vault: VaultConfig = {
-                    id: uuidv4(),
+                    id: vaultId || uuidv4(),
                     name,
                     localPath,
                     syncEnabled,
@@ -82,8 +84,7 @@ export const useConfigStore = create<ConfigState>()(
                 set((state) => ({
                     vaults: state.vaults.map((v) => ({
                         ...v,
-                        syncEnabled: false,
-                        serverVaultId: undefined
+                        syncEnabled: false
                     }))
                 }))
             },

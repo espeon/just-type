@@ -32,8 +32,7 @@ export function VaultSwitcher() {
         setCurrentVault,
         addVault,
         removeVault,
-        userId,
-        updateVault
+        userId
     } = useConfigStore()
     const { loadVault } = useVaultStore()
     const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -56,24 +55,30 @@ export function VaultSwitcher() {
             const path = await storage.chooseVaultLocation()
             if (path) {
                 await storage.initializeVault(path)
-                const localVault = addVault(newVaultName, path, enableSync)
 
-                // Create on server if sync is enabled and user is logged in
+                let vaultId: string
+
+                // Create on server first if sync is enabled
                 if (enableSync && userId) {
                     try {
                         const serverVault = await vaultsApi.create({
                             name: newVaultName
                         })
-                        updateVault(localVault.id, {
-                            serverVaultId: serverVault.id
-                        })
+                        vaultId = serverVault.id
                     } catch (error) {
                         console.error(
                             'Failed to create vault on server:',
                             error
                         )
+                        throw error
                     }
+                } else {
+                    // For local vaults, generate a local ID
+                    vaultId = undefined as any
                 }
+
+                // Add vault with server ID (or undefined for local, which will generate one)
+                addVault(newVaultName, path, enableSync, vaultId)
 
                 setNewVaultName('')
                 setEnableSync(false)
