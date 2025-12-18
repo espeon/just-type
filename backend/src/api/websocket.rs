@@ -106,7 +106,8 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
                         }
 
                         if let Err(e) = handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc).await {
-                            tracing::error!("Error handling binary message: {}", e);
+                            tracing::error!("Error handling binary message: {:?}", e);
+                            // Don't close the connection on error, just log and continue
                         }
                     }
                     Some(Ok(Message::Close(frame))) => {
@@ -206,14 +207,34 @@ async fn handle_binary_message(
         return Ok(());
     }
 
+    tracing::debug!(
+        "Raw message bytes (first 10): {:?}",
+        &data[..std::cmp::min(10, data.len())]
+    );
+
     let (protocol_type, rest1) = read_var_from_slice(data)?;
+    tracing::debug!(
+        "Decoded protocol_type: {}, remaining bytes: {}",
+        protocol_type,
+        rest1.len()
+    );
 
     if protocol_type == 0 {
         // Sync protocol message
         let (msg_type, rest2) = read_var_from_slice(rest1)?;
+        tracing::debug!(
+            "Decoded msg_type: {}, remaining bytes: {}",
+            msg_type,
+            rest2.len()
+        );
 
         // Now read the payload as varByteArray (length prefixed)
         let (payload_len, payload_start) = read_var_from_slice(rest2)?;
+        tracing::debug!(
+            "Decoded payload_len: {}, remaining bytes: {}",
+            payload_len,
+            payload_start.len()
+        );
         let payload_len = payload_len as usize;
 
         if payload_start.len() < payload_len {
@@ -228,7 +249,8 @@ async fn handle_binary_message(
         let payload = &payload_start[..payload_len];
 
         tracing::debug!(
-            "handle_binary_message: msg_type={} total_len={} payload_len={}",
+            "handle_binary_message: protocol_type={} msg_type={} total_len={} payload_len={}",
+            protocol_type,
             msg_type,
             data.len(),
             payload.len()
