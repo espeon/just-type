@@ -2,6 +2,40 @@ import { useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 
+// Helper functions to decode variable-length unsigned integers (varuint)
+function readVarUint(data: Uint8Array, offset: number): number {
+    let value = 0
+    let shift = 0
+    let pos = offset
+
+    while (pos < data.length) {
+        const byte = data[pos]
+        value |= (byte & 0x7f) << shift
+        pos++
+
+        if ((byte & 0x80) === 0) {
+            break
+        }
+
+        shift += 7
+    }
+
+    return value
+}
+
+function getVarUintByteLength(data: Uint8Array, offset: number): number {
+    let pos = offset
+
+    while (pos < data.length) {
+        if ((data[pos] & 0x80) === 0) {
+            return pos - offset + 1
+        }
+        pos++
+    }
+
+    return pos - offset
+}
+
 interface UseServerSyncOptions {
     ydoc: Y.Doc
     documentId: string
@@ -10,6 +44,20 @@ interface UseServerSyncOptions {
     serverUrl?: string
     authToken?: string | null
     userName?: string
+    onMetadataReceived?: (metadata: DocumentMetadata) => void
+}
+
+interface DocumentMetadata {
+    guid: string
+    vault_id: string
+    title: string
+    doc_type: string
+    icon?: string
+    description?: string
+    tags: string[]
+    parent_guid?: string
+    created_at: number
+    modified_at: number
 }
 
 interface SyncState {
@@ -24,7 +72,8 @@ export function useServerSync({
     enabled,
     serverUrl = 'ws://localhost:4000/ws',
     authToken,
-    userName = 'Anonymous'
+    userName = 'Anonymous',
+    onMetadataReceived
 }: UseServerSyncOptions) {
     const providerRef = useRef<WebsocketProvider | null>(null)
     const [state, setState] = useState<SyncState>({
@@ -90,6 +139,49 @@ export function useServerSync({
             })
         }
 
+        // Handle metadata messages from server (protocol type 2)
+        const messageHandler = (message: Uint8Array) => {
+            if (message.length < 2) return
+
+            let offset = 0
+            // Read protocol type (varuint)
+            const protocolType = readVarUint(message, offset)
+            offset += getVarUintByteLength(message, 0)
+
+            if (protocolType !== 2) {
+                // Not a metadata message
+                return
+            }
+
+            // Read message type (varuint)
+            const msgType = readVarUint(message, offset)
+            offset += getVarUintByteLength(message, offset)
+
+            // Read payload length (varuint)
+            const payloadLen = readVarUint(message, offset)
+            offset += getVarUintByteLength(message, offset)
+
+            if (message.length < offset + payloadLen) {
+                console.warn('Metadata message truncated')
+                return
+            }
+
+            // Read JSON payload
+            const payloadBytes = message.slice(offset, offset + payloadLen)
+            const payloadStr = new TextDecoder().decode(payloadBytes)
+
+            try {
+                const metadata = JSON.parse(payloadStr) as DocumentMetadata
+                console.log('Received metadata:', metadata)
+                if (onMetadataReceived) {
+                    onMetadataReceived(metadata)
+                }
+            } catch (e) {
+                console.error('Failed to parse metadata:', e)
+            }
+        }
+
+        provider.on('message', messageHandler)
         provider.on('status', updateState)
         provider.on('sync', updateState)
         ydoc.on('update', updateHandler)
@@ -97,11 +189,20 @@ export function useServerSync({
         providerRef.current = provider
 
         return () => {
+            provider.off('message', messageHandler)
             ydoc.off('update', updateHandler)
             provider.destroy()
             providerRef.current = null
         }
-    }, [ydoc, documentId, enabled, serverUrl, authToken, userName])
+    }, [
+        ydoc,
+        documentId,
+        enabled,
+        serverUrl,
+        authToken,
+        userName,
+        onMetadataReceived
+    ])
 
     return {
         provider: providerRef.current,
