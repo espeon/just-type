@@ -350,7 +350,13 @@ async fn handle_sync_step1(
     // Compute diff (what client is missing)
     let update = {
         let txn = doc_obj.transact();
-        txn.encode_diff_v1(&state_vector)
+        let diff = txn.encode_diff_v1(&state_vector);
+        tracing::debug!(
+            "Computed diff for client: {} bytes (client state_vector had {} structs)",
+            diff.len(),
+            state_vector.len()
+        );
+        diff
     };
 
     // Send Sync Step 2 back to client
