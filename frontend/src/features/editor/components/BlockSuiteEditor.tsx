@@ -136,12 +136,6 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
 
     return (
         <div className="h-full flex flex-col">
-            {syncError && (
-                <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">
-                    <p className="text-sm font-medium">Sync Error</p>
-                    <p className="text-sm">{syncError}</p>
-                </div>
-            )}
             <EditorBar
                 editorPath={[
                     { uuid: document.id, path: document.metadata.title }
@@ -153,6 +147,12 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                 serverConnected={serverConnected}
                 serverSynced={serverSynced}
             />
+            {syncError && (
+                <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">
+                    <p className="text-sm font-medium">Sync Error</p>
+                    <p className="text-sm">{syncError}</p>
+                </div>
+            )}
             <div className="flex-1 overflow-auto">
                 <div className="max-w-4xl mx-auto">
                     <div className="p-2 my-12">

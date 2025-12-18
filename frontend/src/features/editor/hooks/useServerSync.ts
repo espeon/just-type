@@ -129,6 +129,9 @@ export function useServerSync({
                 onError(
                     'Connection lost - you may not have permission to access this vault'
                 )
+                // Destroy provider to stop reconnection attempts
+                provider.destroy()
+                providerRef.current = null
             }
         }
 
