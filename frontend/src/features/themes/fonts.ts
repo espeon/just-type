@@ -80,24 +80,21 @@ export function applyEditorFont(font: EditorFont) {
 
     console.log('applyEditorFont:', font, 'stack:', fontStack)
 
-    // Apply to elements with data-editor-content attribute
-    const editorElements = document.querySelectorAll('[data-editor-content]')
-    console.log('data-editor-content elements found:', editorElements.length)
-    editorElements.forEach((el) => {
-        ;(el as HTMLElement).style.fontFamily = fontStack
-        console.log('Applied font to data-editor-content element')
-    })
+    // Create or update a style element for editor fonts
+    let styleEl = document.getElementById('editor-font-style')
+    if (!styleEl) {
+        styleEl = document.createElement('style')
+        styleEl.id = 'editor-font-style'
+        document.head.appendChild(styleEl)
+    }
 
-    // Also apply to contenteditable divs (Tiptap editor content)
-    const contentEditables = document.querySelectorAll('[contenteditable]')
-    console.log('contenteditable elements found:', contentEditables.length)
-    contentEditables.forEach((el) => {
-        ;(el as HTMLElement).style.fontFamily = fontStack
-        console.log(
-            'Applied font to contenteditable element:',
-            (el as HTMLElement).className
-        )
-    })
+    styleEl.textContent = `
+        [data-editor-content],
+        [contenteditable],
+        .ProseMirror {
+            font-family: ${fontStack} !important;
+        }
+    `
 
     localStorage.setItem('editor-font-family', font)
 }
