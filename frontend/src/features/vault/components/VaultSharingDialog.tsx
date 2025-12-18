@@ -157,7 +157,7 @@ export function VaultSharingDialog({
                                             className="flex items-center gap-2 p-2 border rounded hover:bg-white transition"
                                         >
                                             <div
-                                                className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${getAvatarColor(
+                                                className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold text-white ${getAvatarColor(
                                                     user.display_name ||
                                                         user.username
                                                 )}`}
@@ -230,7 +230,7 @@ export function VaultSharingDialog({
                                         className="flex items-center gap-2 p-2 border rounded text-sm hover:bg-slate-50 transition"
                                     >
                                         <div
-                                            className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${getAvatarColor(
+                                            className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0 ${getAvatarColor(
                                                 member.display_name ||
                                                     member.username
                                             )}`}

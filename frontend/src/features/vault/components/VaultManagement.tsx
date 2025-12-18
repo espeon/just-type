@@ -74,7 +74,7 @@ export function VaultManagement() {
                         key={vault.id}
                         className={`p-4 border rounded-lg ${
                             currentVaultId === vault.id
-                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950'
+                                ? 'border bg-muted'
                                 : 'border-border'
                         }`}
                     >

@@ -46,7 +46,7 @@ export function ProfileSettings() {
             await usersApi.updateProfile({
                 username: username || undefined,
                 display_name: displayName || undefined,
-                avatar_url: avatarUrl || undefined,
+                avatar_url: avatarUrl || undefined
             })
             setSuccess('Profile updated successfully!')
             setTimeout(() => setSuccess(null), 3000)
@@ -59,7 +59,11 @@ export function ProfileSettings() {
     }
 
     if (isLoading) {
-        return <div className="text-sm text-muted-foreground">Loading profile...</div>
+        return (
+            <div className="text-sm text-muted-foreground">
+                Loading profile...
+            </div>
+        )
     }
 
     const displayValue = displayName || username || 'Your Profile'
@@ -84,7 +88,7 @@ export function ProfileSettings() {
 
                 <div className="flex items-start gap-6 mb-6">
                     <div
-                        className={`h-16 w-16 rounded-full flex items-center justify-center text-lg font-bold text-white flex-shrink-0 ${getAvatarColor(
+                        className={`h-16 w-16 rounded-full flex items-center justify-center text-lg font-semibold text-white flex-shrink-0 ${getAvatarColor(
                             avatarDisplay
                         )}`}
                     >
@@ -100,8 +104,12 @@ export function ProfileSettings() {
                     </div>
 
                     <div className="flex-1">
-                        <p className="text-sm font-medium mb-1">{displayValue}</p>
-                        <p className="text-xs text-muted-foreground">User ID: {userId}</p>
+                        <p className="text-sm font-medium mb-1">
+                            {displayValue}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            User ID: {userId}
+                        </p>
                     </div>
                 </div>
 
@@ -117,7 +125,8 @@ export function ProfileSettings() {
                             disabled={isSaving}
                         />
                         <p className="text-xs text-muted-foreground">
-                            3-30 characters, alphanumeric with hyphens/underscores
+                            3-30 characters, alphanumeric with
+                            hyphens/underscores
                         </p>
                     </div>
 

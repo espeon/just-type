@@ -74,6 +74,7 @@ export function VaultSwitcher() {
                     }
                 } else {
                     // For local vaults, generate a local ID
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     vaultId = undefined as any
                 }
 

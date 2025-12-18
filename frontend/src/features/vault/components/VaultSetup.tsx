@@ -48,7 +48,7 @@ export function VaultSetup() {
     return (
         <div className="flex items-center justify-center h-screen">
             <div className="text-center space-y-4">
-                <h1 className="text-4xl font-bold">Welcome to Just Type</h1>
+                <h1 className="text-4xl font-semibold">Welcome to Just Type</h1>
                 <p className="text-muted-foreground">
                     Choose a location for your vault to get started
                 </p>
