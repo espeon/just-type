@@ -4,7 +4,7 @@ import { useVaultStore } from '../stores/vaultStore'
 import { vaultsApi } from '@/api/vaults'
 import { VaultSharingDialog } from './VaultSharingDialog'
 import { Button } from '@/components/ui/button'
-import { Trash2, Share2 } from 'lucide-react'
+import { Trash2, Share2, Cloud, Lock } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -14,12 +14,55 @@ import {
 } from '@/components/ui/dialog'
 
 export function VaultManagement() {
-    const { vaults, currentVaultId, removeVault, setCurrentVault } =
-        useConfigStore()
+    const {
+        vaults,
+        currentVaultId,
+        removeVault,
+        setCurrentVault,
+        updateVault,
+        userId
+    } = useConfigStore()
     const { loadVault } = useVaultStore()
     const [vaultToDelete, setVaultToDelete] = useState<string | null>(null)
     const [isDeleting, setIsDeleting] = useState(false)
+    const [isTogglingSync, setIsTogglingSync] = useState<string | null>(null)
     const [sharingVaultId, setSharingVaultId] = useState<string | null>(null)
+
+    const handleToggleSync = async (vaultId: string) => {
+        const vault = vaults.find((v) => v.id === vaultId)
+        if (!vault) return
+
+        setIsTogglingSync(vaultId)
+        try {
+            if (vault.syncEnabled) {
+                // Disable sync
+                updateVault(vaultId, { syncEnabled: false })
+            } else {
+                // Enable sync - need to create on server first
+                if (!userId) {
+                    alert('you must be logged in to enable sync')
+                    return
+                }
+
+                try {
+                    const serverVault = await vaultsApi.create({
+                        name: vault.name
+                    })
+                    updateVault(vaultId, {
+                        syncEnabled: true,
+                        id: serverVault.id
+                    })
+                } catch (error) {
+                    console.error('Failed to create vault on server:', error)
+                    alert('Failed to enable sync on server')
+                }
+            }
+        } catch (error) {
+            console.error('Failed to toggle sync:', error)
+        } finally {
+            setIsTogglingSync(null)
+        }
+    }
 
     const handleDeleteVault = async (vaultId: string) => {
         setIsDeleting(true)
@@ -95,6 +138,30 @@ export function VaultManagement() {
                                 </p>
                             </div>
                             <div className="flex gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleToggleSync(vault.id)}
+                                    disabled={isTogglingSync === vault.id}
+                                    className="h-8 px-2 text-xs"
+                                    title={
+                                        vault.syncEnabled
+                                            ? 'disable sync'
+                                            : 'enable sync'
+                                    }
+                                >
+                                    {vault.syncEnabled ? (
+                                        <>
+                                            <Cloud className="h-4 w-4 mr-1" />
+                                            disable
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Lock className="h-4 w-4 mr-1" />
+                                            enable
+                                        </>
+                                    )}
+                                </Button>
                                 {vault.syncEnabled && (
                                     <Button
                                         variant="ghost"
@@ -116,6 +183,7 @@ export function VaultManagement() {
                                             setVaultToDelete(vault.id)
                                         }
                                         className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                                        title="remove vault"
                                     >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>
