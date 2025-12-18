@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useThemeStore } from './loader'
 import { getThemesByCategory } from './defs'
+import { FontSelector } from './font-selector'
 
 type Categories =
     | 'default'
@@ -28,6 +29,13 @@ export function ThemeSettings() {
     return (
         <>
             <h2 className="text-2xl font-semibold mb-4">Theme Settings</h2>
+
+            <div className="mb-8">
+                <h3 className="text-xl font-medium mb-3">font</h3>
+                <FontSelector />
+            </div>
+
+            <h3 className="text-xl font-medium mb-4">colors</h3>
             {themeKeys.map((category) => (
                 <div key={category} className="mb-6">
                     <h3 className="text-xl font-medium mb-2">
