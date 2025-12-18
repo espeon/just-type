@@ -141,17 +141,13 @@ export function useServerSync({
             })
         }
 
-        // Handle metadata messages from server (protocol type 2)
+        // Handle metadata messages from server (protocol type 2) or error messages
         const messageHandler = (message: Uint8Array) => {
-            if (message.length < 2) return
+            if (message.length < 1) return
 
-            let offset = 0
-            // Read protocol type (varuint)
-            const protocolType = readVarUint(message, offset)
-            offset += getVarUintByteLength(message, 0)
-
-            if (protocolType !== 2) {
-                // Not a metadata message, check if it's text (error message from server)
+            // Check if it's a JSON error message (starts with '{')
+            if (message[0] === 123) {
+                // '{' character
                 try {
                     const text = new TextDecoder().decode(message)
                     const data = JSON.parse(text)
@@ -161,9 +157,22 @@ export function useServerSync({
                             onError(data.message)
                         }
                     }
-                } catch {
-                    // Not JSON, ignore
+                    return
+                } catch (e) {
+                    console.error('Failed to parse error message:', e)
+                    return
                 }
+            }
+
+            if (message.length < 2) return
+
+            let offset = 0
+            // Read protocol type (varuint)
+            const protocolType = readVarUint(message, offset)
+            offset += getVarUintByteLength(message, 0)
+
+            if (protocolType !== 2) {
+                // Not a metadata message
                 return
             }
 
