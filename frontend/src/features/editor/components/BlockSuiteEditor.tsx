@@ -59,6 +59,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const { connected: serverConnected, synced: serverSynced } = useServerSync({
         ydoc,
         documentId: document.id,
+        vaultId: currentVault?.id,
         enabled: currentVault?.syncEnabled ?? false,
         authToken
     })

@@ -73,11 +73,22 @@ pub async fn ws_handler(
         query.get("doc").cloned()
     };
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state, path_doc))
+    let vault_id = query.get("vaultId").cloned();
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state, path_doc, vault_id))
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) {
-    tracing::info!("WebSocket connection established, doc: {:?}", doc);
+async fn handle_socket(
+    socket: WebSocket,
+    state: AppState,
+    doc: Option<String>,
+    vault_id: Option<String>,
+) {
+    tracing::info!(
+        "WebSocket connection established, doc: {:?}, vault_id: {:?}",
+        doc,
+        vault_id
+    );
 
     let (mut sender, mut receiver) = socket.split();
     tracing::info!("WebSocket split into sender/receiver");
@@ -105,7 +116,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
                             tracing::warn!("Received Binary message with zero length");
                         }
 
-                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc).await {
+                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, &vault_id).await {
                             Ok(_) => tracing::debug!("Message handled successfully"),
                             Err(e) => {
                                 tracing::error!("Error handling binary message: {:?}", e);
@@ -202,6 +213,7 @@ async fn handle_binary_message(
     data: &[u8],
     subscriptions: &mut HashMap<String, broadcast::Receiver<Vec<u8>>>,
     doc: &Option<String>,
+    vault_id: &Option<String>,
 ) -> anyhow::Result<()> {
     // Yjs y-protocols message format:
     // varUint(syncProtocolMessageType) • varUint(messageType) • varByteArray(payload)
@@ -282,7 +294,7 @@ async fn handle_binary_message(
             }
             2 => {
                 // Update: Client sends incremental update
-                handle_update(sender, state, payload, doc).await?;
+                handle_update(sender, state, payload, doc, vault_id).await?;
             }
             _ => {
                 tracing::warn!("Unknown sync message type: {}", msg_type);
@@ -407,6 +419,7 @@ async fn handle_update(
     state: &AppState,
     payload: &[u8],
     doc: &Option<String>,
+    vault_id: &Option<String>,
 ) -> anyhow::Result<()> {
     tracing::debug!("handle_update called with payload {} bytes", payload.len());
 
@@ -439,7 +452,7 @@ async fn handle_update(
     }
 
     // Save updated document to database
-    save_document(state, &guid, &doc_obj).await?;
+    save_document(state, &guid, &doc_obj, vault_id).await?;
 
     // Broadcast update to other clients
     // Format: varUint(0) • varUint(2) • varByteArray(update)
@@ -497,8 +510,26 @@ async fn load_or_create_document(state: &AppState, guid: &str) -> anyhow::Result
 }
 
 // Save document to database
-async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Result<()> {
-    tracing::debug!("save_document called for guid: {}", guid);
+async fn save_document(
+    state: &AppState,
+    guid: &str,
+    doc: &Doc,
+    vault_id: &Option<String>,
+) -> anyhow::Result<()> {
+    tracing::debug!(
+        "save_document called for guid: {}, vault_id: {:?}",
+        guid,
+        vault_id
+    );
+
+    // Parse vault_id UUID
+    let vault_uuid = match vault_id {
+        Some(id_str) => uuid::Uuid::parse_str(id_str)?,
+        None => {
+            tracing::warn!("No vault_id provided, cannot save document");
+            return Err(anyhow::anyhow!("vault_id is required"));
+        }
+    };
 
     let (state_bytes, state_vector_bytes) = {
         let txn = doc.transact();
@@ -513,7 +544,11 @@ async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Resul
     };
 
     // Insert or update document
-    tracing::debug!("Executing INSERT OR UPDATE query for guid: {}", guid);
+    tracing::debug!(
+        "Executing INSERT OR UPDATE query for guid: {} with vault_id: {}",
+        guid,
+        vault_uuid
+    );
     let result = sqlx::query!(
         r#"
         INSERT INTO subdocs (guid, vault_id, doc_type, yjs_state, state_vector, modified_at)
@@ -522,7 +557,7 @@ async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Resul
         SET yjs_state = $4, state_vector = $5, modified_at = NOW()
         "#,
         guid,
-        uuid::Uuid::nil(), // TODO: Get actual vault_id from auth
+        vault_uuid,
         "document",
         state_bytes,
         state_vector_bytes,

@@ -5,6 +5,7 @@ import { WebsocketProvider } from 'y-websocket'
 interface UseServerSyncOptions {
     ydoc: Y.Doc
     documentId: string
+    vaultId?: string
     enabled: boolean
     serverUrl?: string
     authToken?: string | null
@@ -19,6 +20,7 @@ interface SyncState {
 export function useServerSync({
     ydoc,
     documentId,
+    vaultId,
     enabled,
     serverUrl = 'ws://localhost:4000/ws',
     authToken,
@@ -40,9 +42,17 @@ export function useServerSync({
             return
         }
 
+        const params: Record<string, string> = {
+            token: authToken || '',
+            doc: documentId
+        }
+        if (vaultId) {
+            params.vaultId = vaultId
+        }
+
         const provider = new WebsocketProvider(serverUrl, documentId, ydoc, {
             connect: true,
-            params: { token: authToken, doc: documentId }
+            params
         })
 
         provider.awareness.setLocalStateField('user', {
