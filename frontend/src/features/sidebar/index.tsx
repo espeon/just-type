@@ -6,7 +6,6 @@ import { useStorage } from '@/features/vault/storage/StorageContext'
 import { VaultSetup } from '@/features/vault/components/VaultSetup'
 import { VaultSwitcher } from '@/features/vault/components/VaultSwitcher'
 import { FileExplorer } from '@/features/vault/components/FileExplorer'
-import { Separator } from '@/components/ui/separator'
 import { usersApi } from '@/api/users'
 import { getInitials, getAvatarColor } from '@/lib/utils'
 import { User } from '@/api/types'
@@ -71,7 +70,7 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                                 className="flex items-center gap-2 p-2 rounded-md bg-background border hover:bg-muted transition"
                             >
                                 <div
-                                    className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${getAvatarColor(
+                                    className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 ${getAvatarColor(
                                         user.display_name || user.username
                                     )}`}
                                 >
@@ -106,7 +105,12 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                             </Link>
                         </>
                     ) : (
-                        <Link to="/settings">settings</Link>
+                        <Link
+                            className="flex items-center gap-2 p-2 rounded-md bg-background border hover:bg-muted transition"
+                            to="/settings"
+                        >
+                            settings
+                        </Link>
                     )}
                 </SidebarFooter>
             </Sidebar>

@@ -33,7 +33,7 @@ export function ErrorHeader({
     return (
         <h1
             className={cn(
-                'mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl',
+                'mt-4 text-3xl font-semibold tracking-tight text-gray-900 sm:text-5xl',
                 className
             )}
         >
