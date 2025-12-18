@@ -181,15 +181,15 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                     }
                                     onBlur={async () => {
                                         if (
-                                            descriptionValue !==
-                                            document.metadata.description
+                                            titleValue !==
+                                            document.metadata.title
                                         ) {
                                             await updateMetadata(document.id, {
-                                                description: descriptionValue
+                                                title: titleValue
                                             })
                                         }
                                     }}
-                                    className="text-xl md:text-3xl font-bold max-w-lg pl-2"
+                                    className="text-xl md:text-3xl font-semibold max-w-lg pl-1"
                                 />
                             </div>
 
