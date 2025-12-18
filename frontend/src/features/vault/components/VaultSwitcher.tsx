@@ -39,6 +39,19 @@ export function VaultSwitcher() {
     const handleSwitchVault = async (vaultId: string) => {
         setCurrentVault(vaultId)
         await loadVault()
+
+        // Auto-open last viewed document if available
+        const vault = vaults.find((v) => v.id === vaultId)
+        if (vault?.lastOpenedDocumentId) {
+            try {
+                await useVaultStore
+                    .getState()
+                    .openDocument(vault.lastOpenedDocumentId)
+            } catch (error) {
+                console.error('Failed to open last document:', error)
+                // Silently fail - user can open a document manually
+            }
+        }
     }
 
     const handleCreateVault = async () => {
