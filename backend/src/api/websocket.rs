@@ -80,14 +80,17 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
     tracing::info!("WebSocket connection established, doc: {:?}", doc);
 
     let (mut sender, mut receiver) = socket.split();
+    tracing::info!("WebSocket split into sender/receiver");
 
     // Track which documents this client is subscribed to
     let mut subscriptions: HashMap<String, broadcast::Receiver<Vec<u8>>> = HashMap::new();
 
     loop {
+        tracing::trace!("Waiting for next message...");
         tokio::select! {
             // Handle incoming messages from client
             msg = receiver.next() => {
+                tracing::trace!("Got message from client");
                 match msg {
                     Some(Ok(Message::Binary(data))) => {
                         // Diagnostic logging for incoming binary frames
