@@ -89,7 +89,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
         tokio::select! {
             // Handle incoming messages from client
             msg = receiver.next() => {
-                tracing::trace!("Got message from client");
+                tracing::info!("Received something from socket: {:?}", msg.is_some());
                 match msg {
                     Some(Ok(Message::Binary(data))) => {
                         // Diagnostic logging for incoming binary frames
@@ -142,9 +142,11 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
 
             // Handle broadcast updates from other clients
             update = async {
+                tracing::trace!("Checking for broadcast updates");
                 for (_guid, receiver) in subscriptions.iter_mut() {
                     match receiver.try_recv() {
                         Ok(update_data) => {
+                            tracing::info!("Got broadcast update: {} bytes", update_data.len());
                             return Some(update_data);
                         }
                         Err(broadcast::error::TryRecvError::Empty) => continue,
