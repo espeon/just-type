@@ -94,20 +94,23 @@ pub async fn ws_handler(
         StatusCode::BAD_REQUEST
     })?;
 
-    // Verify vault ownership: user must own the vault
-    let vault_exists = sqlx::query!(
-        "SELECT id FROM vaults WHERE id = $1 AND user_id = $2",
+    // Verify vault access: user must own the vault OR be a member
+    let vault_access = sqlx::query!(
+        "SELECT v.id FROM vaults v
+         WHERE v.id = $1 AND (v.user_id = $2 OR EXISTS (
+            SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
+         ))",
         vault_id,
         user_id
     )
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| {
-        tracing::error!("Database error checking vault ownership: {:?}", e);
+        tracing::error!("Database error checking vault access: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let has_vault_access = vault_exists.is_some();
+    let has_vault_access = vault_access.is_some();
 
     if !has_vault_access {
         tracing::warn!(

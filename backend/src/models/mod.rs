@@ -57,6 +57,17 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct VaultMember {
+    pub id: Uuid,
+    pub vault_id: Uuid,
+    pub user_id: Uuid,
+    pub role: String,
+    pub invited_by: Option<Uuid>,
+    pub joined_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub token: String,
