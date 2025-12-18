@@ -1,189 +1,143 @@
-# Just Type Server
+# backend
 
-Rust-based collaboration server for Just Type, following offline-first principles.
+rust collaboration server with yjs websocket sync
 
-## Features
-
-- **Authentication**: Email/password registration and login with JWT tokens
-- **WebSocket Sync**: Real-time collaboration via WebSocket (Yjs protocol - Phase 2)
-- **Multi-Tenant**: Vault-based isolation for users
-- **Offline-First**: Server acts as sync layer, clients work offline
-
-## Quick Start
-
-### Prerequisites
-
-- Rust 1.70+
-- PostgreSQL 14+ (or Docker)
-- [just](https://github.com/casey/just) command runner
-
-### First-Time Setup
+## quick start
 
 ```bash
-# Initialize everything (creates .env, starts db, runs migrations)
-just init
-
-# Start the server
-just run
+just init    # setup db and migrations
+just run     # start server on localhost:3000
 ```
 
-That's it! The server will be running on `http://localhost:3000`
-
-### Common Commands
+## development
 
 ```bash
-just              # List all available commands
-just db           # Start PostgreSQL in Docker
-just run          # Run the server (starts db automatically)
-just dev          # Run with hot reload
-just test         # Run tests
-just precommit    # Format + lint + build
+just dev     # hot reload (requires cargo-watch)
+just test    # run tests
+just fmt     # format code
+just lint    # clippy
 ```
 
-### Testing the API
+## database
 
 ```bash
-# Make sure server is running first
-just run
-
-# In another terminal:
-just test-register  # Register a user
-just test-login     # Login
-just test-health    # Health check
+just db              # start postgres in docker
+just db-reset        # reset database (deletes data)
+just migrate         # run migrations
+just migrate-create NAME  # create new migration
 ```
 
-## Manual Setup (without just)
-
-<details>
-<summary>Click to expand</summary>
-
-1. **Start PostgreSQL**:
-```bash
-docker-compose up -d
-```
-
-2. **Copy environment variables**:
-```bash
-cp .env.example .env
-# Edit .env and set your JWT_SECRET
-```
-
-3. **Run migrations**:
-```bash
-cargo sqlx migrate run
-```
-
-4. **Start server**:
-```bash
-cargo run
-```
-
-</details>
-
-## Project Structure
+## project structure
 
 ```
 src/
-├── main.rs              # Entry point
-├── config.rs            # Configuration
-├── auth/                # Authentication & JWT
-│   ├── mod.rs
-│   ├── jwt.rs
-│   └── password.rs
-├── api/                 # HTTP & WebSocket routes
-│   ├── mod.rs
-│   ├── auth.rs
-│   └── websocket.rs
-├── sync/                # Yjs sync engine (Phase 2)
-├── db/                  # Database connection
-└── models/              # Data models
-
-migrations/              # SQL migrations
-justfile                 # Command runner recipes
-docker-compose.yml       # PostgreSQL for development
+├── main.rs          # axum server setup, routes, cors
+├── config.rs        # env var loading
+├── api/
+│   ├── auth.rs      # POST /api/auth/register, /login
+│   ├── users.rs     # GET /api/users/me
+│   ├── vaults.rs    # vault crud endpoints
+│   └── websocket.rs # yjs websocket sync handler
+├── auth/
+│   ├── jwt.rs       # token generation/validation
+│   └── password.rs  # argon2 hashing
+├── sync/
+│   └── mod.rs       # SyncManager - broadcasts yjs updates
+├── db/              # postgres pool initialization
+└── models/          # request/response structs
 ```
 
-## Environment Variables
+## how yjs sync works
 
-- `DATABASE_URL` - PostgreSQL connection string (default in .env.example)
-- `PORT` - Server port (default: 3000)
-- `JWT_SECRET` - Secret key for JWT tokens (set this!)
+1. client connects to `/ws/{doc_guid}`
+2. client sends state vector (what updates it has)
+3. server responds with missing updates
+4. as users edit, client sends update messages
+5. server broadcasts to all other connected clients
+6. clients apply updates (automatic crdt merge)
 
-## Development
+**SyncManager** (`src/sync/mod.rs`):
+- maintains `HashMap<doc_guid, broadcast::Sender<Vec<u8>>>`
+- creates broadcast channel per document on first connection
+- `broadcast_update()` sends to all subscribers
 
-### Available Commands
+**WebSocket handler** (`src/api/websocket.rs`):
+- uses `yrs-axum` which implements yjs protocol
+- loads/saves `yjs_state` and `state_vector` from postgres
+- handles reconnection via state vector comparison
 
-Run `just` to see all available commands:
+**database storage**:
+- `subdocs.yjs_state` - full document state (bytea)
+- `subdocs.state_vector` - compact version info (bytea)
+- updates applied incrementally and persisted
 
-- `just db` - Start PostgreSQL
-- `just run` - Run server
-- `just dev` - Run with hot reload
-- `just test` - Run tests
-- `just fmt` - Format code
-- `just lint` - Lint code
-- `just build` - Build project
-- `just db-reset` - Reset database (⚠️ deletes all data)
-- `just migrate` - Run migrations
-- `just migrate-create NAME` - Create new migration
+## authentication
 
-### Hot Reload
+**flow**:
+1. POST `/api/auth/register` with email/password
+2. server hashes password with argon2
+3. creates user in postgres
+4. generates jwt token (hs256, 30 day expiry)
+5. client stores token, sends in `Authorization: Bearer <token>` header
+
+**jwt structure**:
+- claims: `user_id` (uuid), `exp` (timestamp)
+- secret from `JWT_SECRET` env var
+- validated via middleware in protected routes
+
+**current limitation**: websocket connections don't handle unauthed connections properly
+
+## database schema
+
+**users** - accounts with email/password hash
+- `id` (uuid), `email` (unique), `password_hash`, `username`, `display_name`
+
+**vaults** - user-owned document collections
+- `id` (uuid), `user_id` (fk), `name`
+
+**subdocs** - unified yjs document storage
+- `guid` (text pk) - client-generated document id
+- `vault_id` (fk) - which vault owns this
+- `parent_guid` (fk) - hierarchical nesting
+- `doc_type` - enum: 'vault' | 'document' | 'database' | 'row'
+- `yjs_state` (bytea) - full crdt state
+- `state_vector` (bytea) - version info for sync
+- indexes on: vault_id, parent_guid, doc_type, modified_at
+
+**document_updates** - audit log of all yjs updates
+- `subdoc_guid` (fk), `user_id` (fk), `update` (bytea), `created_at`
+
+## offline-first design
+
+server is **only a sync layer**, not source of truth:
+- clients create/edit documents completely offline
+- websocket broadcasts changes to collaborators
+- if server crashes, clients continue working
+- reconnection syncs missed changes via state vectors
+- no server-side conflict resolution (crdt handles it)
+
+## env vars
+
+copy `.env.example` to `.env`:
+- `DATABASE_URL` - postgres://user:pass@localhost:5432/justtype
+- `JWT_SECRET` - random secret for tokens
+- `PORT` - server port (default 3000)
+- `RUST_LOG` - tracing level (info, debug, trace)
+
+## testing api
 
 ```bash
-# Install cargo-watch first
-just install-watch
+# register
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test123"}'
 
-# Then run with hot reload
-just dev
+# login (get token)
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"test123"}'
+
+# use token
+curl http://localhost:3000/api/users/me \
+  -H "Authorization: Bearer YOUR_TOKEN_HERE"
 ```
-
-## API Endpoints
-
-### Authentication
-
-**POST /api/auth/register**
-```json
-{
-  "email": "user@example.com",
-  "password": "secure_password"
-}
-```
-
-**POST /api/auth/login**
-```json
-{
-  "email": "user@example.com",
-  "password": "secure_password"
-}
-```
-
-**Response:**
-```json
-{
-  "token": "jwt_token_here",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "created_at": "2025-01-01T00:00:00Z"
-  }
-}
-```
-
-### WebSocket
-
-**GET /ws** - WebSocket endpoint for real-time sync (Phase 2)
-
-### Health Check
-
-**GET /health** - Returns "OK"
-
-## Roadmap
-
-- [x] Phase 1: Authentication + WebSocket foundation
-- [ ] Phase 2: Yjs sync engine with persistence
-- [ ] Phase 3: Multi-vault support
-- [ ] Phase 4: Production hardening
-- [ ] Phase 5: Subdocument architecture for databases
-
-## License
-
-MIT
