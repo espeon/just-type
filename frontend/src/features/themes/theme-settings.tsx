@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useThemeStore } from './loader'
 import { getThemesByCategory } from './defs'
 import { FontSelector } from './font-selector'
+import { EditorFontSelector } from './editor-font-selector'
 
 type Categories =
     | 'default'
@@ -31,8 +32,13 @@ export function ThemeSettings() {
             <h2 className="text-2xl font-semibold mb-4">Theme Settings</h2>
 
             <div className="mb-8">
-                <h3 className="text-xl font-medium mb-3">font</h3>
+                <h3 className="text-xl font-medium mb-3">ui font</h3>
                 <FontSelector />
+            </div>
+
+            <div className="mb-8">
+                <h3 className="text-xl font-medium mb-3">editor font</h3>
+                <EditorFontSelector />
             </div>
 
             <h3 className="text-xl font-medium mb-4">colors</h3>
