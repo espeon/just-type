@@ -123,6 +123,13 @@ export function useServerSync({
                 connected: provider.wsconnected,
                 synced: provider.synced
             })
+
+            // If connection was lost, it might be a permission error
+            if (state.status === 'disconnected' && onError) {
+                onError(
+                    'Connection lost - you may not have permission to access this vault'
+                )
+            }
         }
 
         // Log initial provider state
@@ -141,37 +148,13 @@ export function useServerSync({
             })
         }
 
-        // Handle metadata messages from server (protocol type 2) or error messages
+        // Handle metadata messages from server (protocol type 2)
         const messageHandler = (message: Uint8Array) => {
             if (message.length < 1) return
 
-            // Log raw message for debugging
-            console.log('Raw message received:', {
-                length: message.length,
-                firstByte: message[0],
-                firstBytes: Array.from(message.slice(0, 20))
-            })
-
-            // Try to decode as text first
-            try {
-                const text = new TextDecoder().decode(message)
-                console.log('Decoded as text:', text)
-                const data = JSON.parse(text)
-                if (data.type === 'error' && data.message) {
-                    console.error('Server error:', data.message)
-                    if (onError) {
-                        onError(data.message)
-                    }
-                    return
-                }
-            } catch (e) {
-                console.log('Not JSON text:', e)
-            }
-
             // Check if it's a metadata message (starts with 2)
-            if (message[0] === 2) {
-                // Process as metadata message
-            } else {
+            if (message[0] !== 2) {
+                // Not a metadata message, ignore
                 return
             }
 

@@ -155,18 +155,11 @@ async fn handle_socket(
     let (mut sender, mut receiver) = socket.split();
     tracing::info!("WebSocket split into sender/receiver");
 
-    // If user doesn't have vault access, send error and close connection
+    // If user doesn't have vault access, close connection immediately
     if !has_vault_access {
-        let error_msg = "You don't have permission to access this vault";
-        if let Ok(json) = serde_json::to_string(&serde_json::json!({
-            "type": "error",
-            "message": error_msg
-        })) {
-            let _ = sender.send(Message::Text(json.into())).await;
-        }
         let _ = sender.send(Message::Close(None)).await;
-        tracing::info!(
-            "Sent permission error and closed connection for user {}",
+        tracing::warn!(
+            "Closed WebSocket connection for user {} - vault access denied",
             user_id
         );
         return;
