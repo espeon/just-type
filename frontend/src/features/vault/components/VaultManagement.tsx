@@ -49,6 +49,9 @@ export function VaultManagement() {
                         name: vault.name
                     })
 
+                    // Verify the vault was created successfully on the server
+                    await vaultsApi.get(serverVault.id)
+
                     // Create new vault with server ID
                     const newVault = {
                         ...vault,
