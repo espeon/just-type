@@ -43,6 +43,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [commandPopoverOpen, setCommandPopoverOpen] = useState(false)
     const [insertBefore, setInsertBefore] = useState(false)
     const [syncError, setSyncError] = useState<string | null>(null)
+    const [syncKey, setSyncKey] = useState(0)
     const dragHandleNodePos = useRef<number | null>(null)
 
     const { ydoc } = useYjsDocument({
@@ -61,7 +62,8 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
         vaultId: currentVault?.id,
         enabled: currentVault?.syncEnabled ?? false,
         authToken,
-        onError: setSyncError
+        onError: setSyncError,
+        key: syncKey
     })
 
     useEffect(() => {
@@ -129,6 +131,12 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
         setRoomPassword('')
     }
 
+    const handleServerSyncRetry = () => {
+        setSyncError(null)
+        // Increment key to trigger useServerSync to reinitialize
+        setSyncKey((prev) => prev + 1)
+    }
+
     return (
         <div className="h-full flex flex-col">
             <EditorBar
@@ -141,6 +149,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                 serverSyncEnabled={currentVault?.syncEnabled}
                 serverConnected={serverConnected}
                 serverSynced={serverSynced}
+                onServerSyncRetry={handleServerSyncRetry}
             />
             {syncError && (
                 <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">

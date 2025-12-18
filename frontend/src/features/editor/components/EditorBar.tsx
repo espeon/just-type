@@ -43,6 +43,7 @@ interface EditorBarProps {
     serverSyncEnabled?: boolean
     serverConnected?: boolean
     serverSynced?: boolean
+    onServerSyncRetry?: () => void
 }
 
 export function EditorBar({
@@ -52,7 +53,8 @@ export function EditorBar({
     onToggle,
     serverSyncEnabled,
     serverConnected,
-    serverSynced
+    serverSynced,
+    onServerSyncRetry
 }: EditorBarProps) {
     return (
         <div className="flex items-center justify-between gap-2 px-4 py-1.5 border-b sticky top-0 left-0 z-10 pl-10 bg-background">
@@ -99,7 +101,13 @@ export function EditorBar({
             )}
 
             {serverSyncEnabled && (
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onServerSyncRetry}
+                    className="gap-1"
+                    disabled={serverConnected}
+                >
                     {serverConnected ? (
                         <Cloud
                             className={`h-4 w-4 ${serverSynced ? 'text-green-500' : 'text-yellow-500'}`}
@@ -107,14 +115,14 @@ export function EditorBar({
                     ) : (
                         <CloudOff className="h-4 w-4" />
                     )}
-                    <span>
+                    <span className="text-sm text-muted-foreground">
                         {serverConnected
                             ? serverSynced
                                 ? 'Synced'
                                 : 'Syncing...'
                             : 'Offline'}
                     </span>
-                </div>
+                </Button>
             )}
         </div>
     )

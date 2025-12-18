@@ -46,6 +46,7 @@ interface UseServerSyncOptions {
     userName?: string
     onMetadataReceived?: (metadata: DocumentMetadata) => void
     onError?: (error: string) => void
+    key?: number
 }
 
 interface DocumentMetadata {
@@ -75,7 +76,8 @@ export function useServerSync({
     authToken,
     userName = 'Anonymous',
     onMetadataReceived,
-    onError
+    onError,
+    key = 0
 }: UseServerSyncOptions) {
     const providerRef = useRef<WebsocketProvider | null>(null)
     const [state, setState] = useState<SyncState>({
@@ -204,7 +206,8 @@ export function useServerSync({
         authToken,
         userName,
         onMetadataReceived,
-        onError
+        onError,
+        key
     ])
 
     return {
