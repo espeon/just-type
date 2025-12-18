@@ -28,7 +28,7 @@ function RouteComponent() {
     return (
         <div className="flex flex-1 justify-center">
             <div className="max-w-4xl py-4 w-full px-4">
-                <h1 className="mb-6 text-3xl font-bold">settings</h1>
+                <h1 className="mb-6 text-3xl font-semibold">settings</h1>
 
                 <div className="flex gap-8">
                     {/* Sidebar */}
@@ -61,6 +61,9 @@ function RouteComponent() {
                                         </h2>
                                         <div className="space-y-4">
                                             <ProfileSettings />
+                                            <h2 className="text-lg font-semibold pt-6">
+                                                authentication
+                                            </h2>
                                             <Button
                                                 variant="outline"
                                                 onClick={() => clearAuth()}

@@ -84,14 +84,7 @@ export const useConfigStore = create<ConfigState>()(
 
             clearAuth: () => {
                 set({ userId: null, authToken: null })
-
-                // Disable sync on all vaults when logging out
-                set((state) => ({
-                    vaults: state.vaults.map((v) => ({
-                        ...v,
-                        syncEnabled: false
-                    }))
-                }))
+                // Don't disable sync - let vaults remember their sync state for next login
             },
 
             login: async (email: string, password: string) => {
