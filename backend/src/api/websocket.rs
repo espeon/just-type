@@ -155,8 +155,22 @@ async fn handle_socket(
     let (mut sender, mut receiver) = socket.split();
     tracing::info!("WebSocket split into sender/receiver");
 
-    // Note: If has_vault_access is false, syncing will fail with vault_id mismatch in DB queries,
-    // but client can still edit locally. This is logged as a warning for audit purposes.
+    // If user doesn't have vault access, send error and close connection
+    if !has_vault_access {
+        let error_msg = "You don't have permission to access this vault";
+        if let Ok(json) = serde_json::to_string(&serde_json::json!({
+            "type": "error",
+            "message": error_msg
+        })) {
+            let _ = sender.send(Message::Text(json.into())).await;
+        }
+        let _ = sender.send(Message::Close(None)).await;
+        tracing::info!(
+            "Sent permission error and closed connection for user {}",
+            user_id
+        );
+        return;
+    }
 
     // Track which documents this client is subscribed to
     let mut subscriptions: HashMap<String, broadcast::Receiver<Vec<u8>>> = HashMap::new();

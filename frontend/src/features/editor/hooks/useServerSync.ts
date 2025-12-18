@@ -45,6 +45,7 @@ interface UseServerSyncOptions {
     authToken?: string | null
     userName?: string
     onMetadataReceived?: (metadata: DocumentMetadata) => void
+    onError?: (error: string) => void
 }
 
 interface DocumentMetadata {
@@ -73,7 +74,8 @@ export function useServerSync({
     serverUrl = 'ws://localhost:4000/ws',
     authToken,
     userName = 'Anonymous',
-    onMetadataReceived
+    onMetadataReceived,
+    onError
 }: UseServerSyncOptions) {
     const providerRef = useRef<WebsocketProvider | null>(null)
     const [state, setState] = useState<SyncState>({
@@ -149,7 +151,19 @@ export function useServerSync({
             offset += getVarUintByteLength(message, 0)
 
             if (protocolType !== 2) {
-                // Not a metadata message
+                // Not a metadata message, check if it's text (error message from server)
+                try {
+                    const text = new TextDecoder().decode(message)
+                    const data = JSON.parse(text)
+                    if (data.type === 'error' && data.message) {
+                        console.error('Server error:', data.message)
+                        if (onError) {
+                            onError(data.message)
+                        }
+                    }
+                } catch {
+                    // Not JSON, ignore
+                }
                 return
             }
 
@@ -201,7 +215,8 @@ export function useServerSync({
         serverUrl,
         authToken,
         userName,
-        onMetadataReceived
+        onMetadataReceived,
+        onError
     ])
 
     return {
