@@ -28,3 +28,16 @@ export interface ServerVault {
 export interface CreateVaultRequest {
     name: string
 }
+
+export interface DocumentMetadata {
+    guid: string
+    vault_id: string
+    title: string
+    doc_type: string
+    icon?: string
+    description?: string
+    tags: string[]
+    parent_guid?: string
+    created_at: string
+    modified_at: string
+}

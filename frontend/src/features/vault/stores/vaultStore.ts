@@ -9,6 +9,7 @@ import { VaultIndex } from '../types'
 import { buildDocumentIndex } from '../utils/indexer'
 import { useConfigStore } from './configStore'
 import { StorageProvider } from '../storage/types'
+import { vaultsApi } from '@/api/vaults'
 
 interface VaultState {
     documents: Document[]
@@ -78,6 +79,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     loadVault: async () => {
         const vault = useConfigStore.getState().getCurrentVault()
+        const { userId } = useConfigStore.getState()
         if (!vault) {
             set({
                 documents: [],
@@ -89,6 +91,15 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         }
 
         await get().buildIndex()
+
+        // Fetch batch metadata from server if vault is synced
+        if (vault.syncEnabled && userId) {
+            try {
+                await vaultsApi.getDocumentsMetadata(vault.id)
+            } catch (error) {
+                console.error('Failed to fetch documents metadata:', error)
+            }
+        }
     },
 
     buildIndex: async () => {
