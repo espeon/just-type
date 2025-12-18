@@ -91,23 +91,24 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
                 match msg {
                     Some(Ok(Message::Binary(data))) => {
                         // Diagnostic logging for incoming binary frames
-                        tracing::debug!("Received WebSocket Binary message ({} bytes)", data.len());
+                        tracing::info!("Received WebSocket Binary message ({} bytes)", data.len());
                         if !data.is_empty() {
-                            tracing::debug!("Message type byte: {}", data[0]);
-                            let payload_len = data.len().saturating_sub(1);
-                            tracing::debug!("Payload length (after msg type): {}", payload_len);
-                            let snippet_len = std::cmp::min(16, payload_len);
-                            if snippet_len > 0 {
-                                // Show a short debug trace of the payload bytes (use trace level to avoid clutter)
-                                tracing::trace!("Payload snippet (first {} bytes): {:?}", snippet_len, &data[1..1 + snippet_len]);
-                            }
+                            let hex_preview = data[..std::cmp::min(16, data.len())]
+                                .iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::debug!("Message hex (first 16 bytes): {}", hex_preview);
                         } else {
                             tracing::warn!("Received Binary message with zero length");
                         }
 
-                        if let Err(e) = handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc).await {
-                            tracing::error!("Error handling binary message: {:?}", e);
-                            // Don't close the connection on error, just log and continue
+                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc).await {
+                            Ok(_) => tracing::debug!("Message handled successfully"),
+                            Err(e) => {
+                                tracing::error!("Error handling binary message: {:?}", e);
+                                // Don't close the connection on error, just log and continue
+                            }
                         }
                     }
                     Some(Ok(Message::Close(frame))) => {
