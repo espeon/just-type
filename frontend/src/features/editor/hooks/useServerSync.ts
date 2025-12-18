@@ -112,13 +112,6 @@ export function useServerSync({
         })
 
         const updateState = (state: any) => {
-            console.log('WebSocket status update:', state)
-            console.log('Provider state:', {
-                wsconnected: provider.wsconnected,
-                synced: provider.synced,
-                url: provider.url,
-                room: provider.room
-            })
             setState({
                 connected: provider.wsconnected,
                 synced: provider.synced
@@ -135,20 +128,9 @@ export function useServerSync({
             }
         }
 
-        // Log initial provider state
-        console.log('Initial provider state:', {
-            wsconnected: provider.wsconnected,
-            synced: provider.synced,
-            url: provider.url,
-            room: provider.room
-        })
-
-        // Log document updates
+        // Handle document updates
         const updateHandler = (update: Uint8Array, origin: any) => {
-            console.log('Ydoc update fired:', {
-                updateSize: update.length,
-                origin
-            })
+            // Document was updated
         }
 
         // Handle metadata messages from server (protocol type 2)

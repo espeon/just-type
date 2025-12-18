@@ -45,8 +45,6 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [syncError, setSyncError] = useState<string | null>(null)
     const dragHandleNodePos = useRef<number | null>(null)
 
-    console.log('Rendering BlockSuiteEditor for document', document.id)
-
     const { ydoc } = useYjsDocument({
         documentId: document.id,
         initialState: document.state
@@ -56,9 +54,6 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
 
     const currentVault = useConfigStore((state) => state.getCurrentVault())
     const authToken = useConfigStore((state) => state.authToken)
-
-    console.log('BlockSuiteEditor: currentVault', currentVault)
-    console.log('BlockSuiteEditor: vaultId to pass', currentVault?.id)
 
     const { connected: serverConnected, synced: serverSynced } = useServerSync({
         ydoc,
@@ -161,7 +156,6 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                 <EmojiPicker
                                     value={document.metadata.icon}
                                     onSelect={async (emoji) => {
-                                        console.log('picked emoji', emoji)
                                         await updateMetadata(document.id, {
                                             icon: emoji
                                         })
@@ -207,7 +201,6 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                                     document.metadata.tags.filter(
                                                         (t) => t !== tag
                                                     )
-                                                console.log(restTags)
                                                 await updateMetadata(
                                                     document.id,
                                                     {
