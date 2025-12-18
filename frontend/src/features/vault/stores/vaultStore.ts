@@ -100,6 +100,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
                 console.error('Failed to fetch documents metadata:', error)
             }
         }
+
+        // Auto-open last viewed document if available
+        if (vault.lastOpenedDocumentId) {
+            try {
+                await get().openDocument(vault.lastOpenedDocumentId)
+            } catch (error) {
+                console.error('Failed to open last document:', error)
+                // Silently fail - user can open a document manually
+            }
+        }
     },
 
     buildIndex: async () => {
@@ -156,6 +166,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
             set({ isLoading: true, error: null })
             const document = await storage.readDocument(vault.localPath, id)
             set({ currentDocument: document })
+
+            // Track last opened document for this vault
+            useConfigStore.getState().updateVault(vault.id, {
+                lastOpenedDocumentId: id
+            })
         } catch (error) {
             set({ error: String(error) })
         } finally {
