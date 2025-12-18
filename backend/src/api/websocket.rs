@@ -77,7 +77,7 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) {
-    tracing::info!("WebSocket connection established");
+    tracing::info!("WebSocket connection established, doc: {:?}", doc);
 
     let (mut sender, mut receiver) = socket.split();
 
