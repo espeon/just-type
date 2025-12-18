@@ -12,7 +12,7 @@ export function TiptapEditor({ editor }: TiptapEditorProps) {
     }
 
     return (
-        <div className="w-full h-full">
+        <div className="w-full h-full" data-editor-content>
             <EditorContent editor={editor} />
         </div>
     )
