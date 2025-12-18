@@ -1,10 +1,5 @@
 import { useEffect, useState } from 'react'
-import {
-    EDITOR_FONTS,
-    type EditorFont,
-    getStoredEditorFont,
-    applyEditorFont
-} from './fonts'
+import { EDITOR_FONTS, type EditorFont, getStoredEditorFont } from './fonts'
 
 export function EditorFontSelector() {
     const [selectedFont, setSelectedFont] = useState<EditorFont>('default')
@@ -13,13 +8,45 @@ export function EditorFontSelector() {
     useEffect(() => {
         const font = getStoredEditorFont()
         setSelectedFont(font)
-        applyEditorFont(font)
         setIsLoaded(true)
     }, [])
 
+    const applyEditorFont = (font: EditorFont) => {
+        const fontStack = EDITOR_FONTS[font].stack
+        console.log('applyEditorFont in component:', font, 'stack:', fontStack)
+
+        // Apply to elements with data-editor-content attribute
+        const editorElements = document.querySelectorAll(
+            '[data-editor-content]'
+        )
+        console.log(
+            'data-editor-content elements found:',
+            editorElements.length
+        )
+        editorElements.forEach((el) => {
+            ;(el as HTMLElement).style.fontFamily = fontStack
+            console.log('Applied font to data-editor-content element')
+        })
+
+        // Also apply to contenteditable divs (Tiptap editor content)
+        const contentEditables = document.querySelectorAll('[contenteditable]')
+        console.log('contenteditable elements found:', contentEditables.length)
+        contentEditables.forEach((el) => {
+            ;(el as HTMLElement).style.fontFamily = fontStack
+            console.log(
+                'Applied font to contenteditable element:',
+                (el as HTMLElement).className
+            )
+        })
+
+        localStorage.setItem('editor-font-family', font)
+    }
+
     const handleFontChange = (font: EditorFont) => {
         setSelectedFont(font)
+        // Apply immediately and retry after a short delay to catch dynamically rendered editors
         applyEditorFont(font)
+        setTimeout(() => applyEditorFont(font), 100)
     }
 
     if (!isLoaded) {
