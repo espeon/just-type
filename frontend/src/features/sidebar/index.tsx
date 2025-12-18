@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useConfigStore } from '@/features/vault/stores/configStore'
 import { useVaultStore } from '@/features/vault/stores/vaultStore'
@@ -7,6 +7,9 @@ import { VaultSetup } from '@/features/vault/components/VaultSetup'
 import { VaultSwitcher } from '@/features/vault/components/VaultSwitcher'
 import { FileExplorer } from '@/features/vault/components/FileExplorer'
 import { Separator } from '@/components/ui/separator'
+import { usersApi } from '@/api/users'
+import { getInitials, getAvatarColor } from '@/lib/utils'
+import { User } from '@/api/types'
 import {
     Sidebar,
     SidebarProvider,
@@ -20,7 +23,9 @@ import {
 export function SidebarWrapper({ children }: { children: React.ReactNode }) {
     const storage = useStorage()
     const currentVault = useConfigStore((state) => state.getCurrentVault())
+    const userId = useConfigStore((state) => state.userId)
     const { loadVault, setStorage } = useVaultStore()
+    const [user, setUser] = useState<User | null>(null)
 
     useEffect(() => {
         setStorage(storage)
@@ -31,6 +36,17 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
             loadVault()
         }
     }, [currentVault, loadVault])
+
+    useEffect(() => {
+        if (userId) {
+            usersApi
+                .getCurrentUser()
+                .then(setUser)
+                .catch((err) =>
+                    console.error('Failed to load user profile', err)
+                )
+        }
+    }, [userId])
 
     if (!currentVault) {
         return <VaultSetup />
@@ -49,11 +65,54 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                 <SidebarFooter>
                     <VaultSwitcher />
                     <Separator />
+                    {userId && user && (
+                        <>
+                            <Link
+                                to={'/settings'}
+                                className="flex items-center gap-2 p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                            >
+                                <div
+                                    className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${getAvatarColor(
+                                        user.display_name || user.username
+                                    )}`}
+                                >
+                                    {user.avatar_url ? (
+                                        <img
+                                            src={user.avatar_url}
+                                            alt={
+                                                user.display_name ||
+                                                user.username ||
+                                                'User'
+                                            }
+                                            className="h-full w-full rounded-full object-cover"
+                                        />
+                                    ) : (
+                                        getInitials(
+                                            user.display_name || user.username
+                                        )
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium truncate">
+                                        {user.display_name ||
+                                            user.username ||
+                                            'Profile'}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground truncate">
+                                        {user.username
+                                            ? `@${user.username}`
+                                            : user.email}
+                                    </p>
+                                </div>
+                            </Link>
+                            <Separator />
+                        </>
+                    )}
                     <Link
                         to={'/settings'}
-                        className="p-2 text-sm text-muted-foreground"
+                        className="p-2 text-sm text-muted-foreground hover:text-foreground transition"
                     >
-                        Settings
+                        settings
                     </Link>
                 </SidebarFooter>
             </Sidebar>
