@@ -48,7 +48,7 @@ export default function BubbleMenuComponent({ editor }: Props) {
     return (
         <BubbleMenu
             editor={editor}
-            shouldShow={({ editor, state }) => {
+            shouldShow={({ state }) => {
                 // hide bubble menu when slash command is active
                 const { from, to } = state.selection
                 const text = state.doc.textBetween(from - 1, to, '\0')

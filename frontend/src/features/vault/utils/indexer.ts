@@ -14,6 +14,10 @@ function slugify(text: string): string {
         .replace(/-+$/, '') // Trim - from end of text
 }
 
+interface InlineContent {
+    text: string
+}
+
 /**
  * Extract headers from a Yjs document.
  * Assumes BlockNote's structure where content is a Y.XmlFragment
@@ -36,7 +40,7 @@ function extractHeaders(doc: Y.Doc): DocumentHeader[] {
             if (block.type === 'heading') {
                 const level = (block.props.level || '1') as '1' | '2' | '3'
                 const text = block.content
-                    .map((inline: any) => inline.text)
+                    .map((inline: InlineContent) => inline.text)
                     .join('')
                 if (text) {
                     headers.push({
@@ -86,7 +90,9 @@ function getDocText(doc: Y.Doc): string {
 
         return blocks
             .map((block) =>
-                (block.content || []).map((inline: any) => inline.text).join('')
+                (block.content || [])
+                    .map((inline: InlineContent) => inline.text)
+                    .join('')
             )
             .join('\n')
     } catch {

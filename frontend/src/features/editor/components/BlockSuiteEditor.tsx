@@ -11,7 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import { GripVertical, Plus, X } from 'lucide-react'
 import * as Y from 'yjs'
 import { TiptapEditor } from './TiptapEditor'
-import DragHandle from '@tiptap/extension-drag-handle-react'
 import BubbleMenuComponent from './BubbleMenu'
 import {
     Popover,
@@ -19,7 +18,10 @@ import {
     PopoverTrigger
 } from '@/components/ui/popover'
 import { SlashCommandList } from './SlashCommandList'
-import { commands } from '../extensions/SlashCommandExtension'
+import { commands, SlashCommand } from '../extensions/SlashCommandExtension'
+import { useYjsDocument } from '../hooks/useYjsDocument'
+import { DragHandle } from '@tiptap/extension-drag-handle-react'
+import { Editor, JSONContent } from '@tiptap/core'
 
 interface BlockSuiteEditorProps {
     document: Document
@@ -28,7 +30,6 @@ interface BlockSuiteEditorProps {
 export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const { saveDocument, updateMetadata } = useVaultStore()
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
     const [collaborationEnabled, setCollaborationEnabled] = useState(false)
     const [userName, setUserName] = useState('')
     const [roomPassword, setRoomPassword] = useState('')
@@ -39,14 +40,14 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     )
     const [commandPopoverOpen, setCommandPopoverOpen] = useState(false)
     const [insertBefore, setInsertBefore] = useState(false)
-    const [dragHandleNodePos, setDragHandleNodePos] = useState<number | null>(
-        null
-    )
+    const dragHandleNodePos = useRef<number | null>(null)
 
-    const { editor, ydoc } = useTiptapEditor({
+    const { ydoc } = useYjsDocument({
         documentId: document.id,
         initialState: document.state
     })
+
+    const { editor } = useTiptapEditor({ ydoc })
 
     useEffect(() => {
         if (!ydoc) return
@@ -73,7 +74,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     }, [ydoc, document.id, saveDocument])
 
     const { provider, connected, peerCount } = useCollaboration({
-        ydoc: ydoc || new Y.Doc(),
+        ydoc: ydoc,
         documentId: document.id,
         enabled: collaborationEnabled && !!ydoc,
         roomPassword,
@@ -230,10 +231,10 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                         <DragHandle
                             editor={editor}
                             computePositionConfig={{ placement: 'left' }}
-                            className="-ml-4 flex"
+                            className="-ml-4 flex transition-all duration-100"
                             onNodeChange={({ node, pos }) => {
                                 if (node) {
-                                    setDragHandleNodePos(pos)
+                                    dragHandleNodePos.current = pos
                                 }
                             }}
                         >
@@ -258,28 +259,28 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                     <SlashCommandList
                                         items={commands.map((cmd) => ({
                                             ...cmd,
-                                            command: (editor: any) => {
+                                            command: (editor: Editor) => {
                                                 if (
                                                     !editor ||
-                                                    dragHandleNodePos === null
+                                                    dragHandleNodePos.current ===
+                                                        null
                                                 )
                                                     return
 
                                                 const { doc } = editor.state
-                                                const node =
-                                                    doc.nodeAt(
-                                                        dragHandleNodePos
-                                                    )
+                                                const node = doc.nodeAt(
+                                                    dragHandleNodePos.current
+                                                )
                                                 if (!node) return
 
                                                 // calculate position before or after the node
                                                 const pos = insertBefore
-                                                    ? dragHandleNodePos
-                                                    : dragHandleNodePos +
-                                                      node.nodeSize
+                                                    ? dragHandleNodePos.current
+                                                    : (dragHandleNodePos.current ||
+                                                          0) + node.nodeSize
 
                                                 // create content based on command type
-                                                let content: any
+                                                let content: JSONContent
                                                 if (
                                                     cmd.title.includes(
                                                         'Heading'
@@ -376,7 +377,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                                             }
                                         }))}
                                         command={() => {}}
-                                        onSelect={(cmd) => {
+                                        onSelect={(cmd: SlashCommand) => {
                                             cmd.command(editor)
                                             setCommandPopoverOpen(false)
                                         }}

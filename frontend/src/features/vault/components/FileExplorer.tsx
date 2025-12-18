@@ -28,6 +28,7 @@ import {
     useSortable
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import twemoji from '@twemoji/api'
 
 interface DocumentItemProps {
     doc: Document
@@ -126,7 +127,12 @@ function DocumentItem({
                                     <div className="min-w-3 w-3" />
                                 )}
                             </span>
-                            <span className="text-base">{icon}</span>
+                            <div
+                                className="h-max min-w-[1em] p-0 emoji-size"
+                                dangerouslySetInnerHTML={{
+                                    __html: twemoji.parse(icon)
+                                }}
+                            />
                             {isRenaming ? (
                                 <input
                                     type="text"

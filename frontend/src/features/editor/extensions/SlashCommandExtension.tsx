@@ -107,7 +107,6 @@ export const SlashCommandExtension = Extension.create({
                 },
 
                 render: () => {
-                    console.log('suggestion render called')
                     let component: ReactRenderer<SlashCommandListRef> | null =
                         null
                     let popup: HTMLElement | null = null
@@ -142,14 +141,12 @@ export const SlashCommandExtension = Extension.create({
 
                     return {
                         onStart: (props) => {
-                            console.log('suggestion onStart')
                             component = new ReactRenderer(SlashCommandList, {
                                 props: {
                                     ...props,
                                     onSelect: (cmd: SlashCommand) => {
-                                        console.log('selected', cmd.title)
-                                        cmd.command(props.editor)
                                         props.command({})
+                                        cmd.command(props.editor)
                                     }
                                 },
                                 editor: props.editor
@@ -171,13 +168,11 @@ export const SlashCommandExtension = Extension.create({
                         },
 
                         onUpdate(props) {
-                            console.log('suggestion onUpdate')
                             component?.updateProps({
                                 ...props,
                                 onSelect: (cmd: SlashCommand) => {
-                                    console.log('command', cmd.title)
-                                    cmd.command(props.editor)
                                     props.command({})
+                                    cmd.command(props.editor)
                                 }
                             })
 
@@ -185,7 +180,6 @@ export const SlashCommandExtension = Extension.create({
                         },
 
                         onKeyDown(props) {
-                            console.log('suggestion onKeyDown', props.event.key)
                             if (props.event.key === 'Escape') {
                                 return true
                             }

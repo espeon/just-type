@@ -1,120 +1,435 @@
-use crate::auth::AppState;
+use crate::api::auth::AppState;
 use axum::{
+    body::Bytes,
     extract::{
-        State,
+        Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::Response,
 };
-use serde::{Deserialize, Serialize};
+use futures_util::{SinkExt, StreamExt};
+use std::collections::HashMap;
+use tokio::sync::broadcast;
+use yrs::updates::decoder::Decode;
+use yrs::updates::encoder::Encode;
+use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum SyncMessage {
-    #[serde(rename = "sync-step-1")]
-    SyncStep1 {
-        #[serde(rename = "documentId")]
-        document_id: String,
-        #[serde(rename = "stateVector")]
-        state_vector: Vec<u8>,
-    },
-    #[serde(rename = "sync-step-2")]
-    SyncStep2 {
-        #[serde(rename = "documentId")]
-        document_id: String,
-        update: Vec<u8>,
-    },
-    #[serde(rename = "update")]
-    Update {
-        #[serde(rename = "documentId")]
-        document_id: String,
-        update: Vec<u8>,
-    },
-    #[serde(rename = "awareness")]
-    Awareness { update: Vec<u8> },
+fn read_var_from_slice(data: &[u8]) -> anyhow::Result<(u32, &[u8])> {
+    let mut value: u32 = 0;
+    let mut shift = 0;
+    let mut pos = 0;
+
+    loop {
+        if pos >= data.len() {
+            return Err(anyhow::anyhow!("varint decoding ran out of bytes"));
+        }
+
+        let byte = data[pos] as u32;
+        pos += 1;
+
+        value |= (byte & 0x7F) << shift;
+
+        if byte & 0x80 == 0 {
+            break;
+        }
+
+        shift += 7;
+    }
+
+    Ok((value, &data[pos..]))
 }
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
+fn encode_var_uint(buf: &mut Vec<u8>, mut value: u32) -> anyhow::Result<()> {
+    loop {
+        let mut byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value > 0 {
+            byte |= 0x80;
+        }
+        buf.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+    Ok(())
 }
 
-async fn handle_socket(mut socket: WebSocket, state: AppState) {
+// /ws/:doc WebSocket handler
+#[axum::debug_handler]
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+    Path(doc): Path<String>,
+) -> Response {
+    // Log the raw path doc and query params received at upgrade so we can confirm what the router provided
+    tracing::info!("ws upgrade for doc path param: {:?}", doc);
+    tracing::debug!("ws upgrade query params: {:?}", query);
+
+    // Prefer path param when present, otherwise fallback to ?doc=<id> query parameter
+    let path_doc = if !doc.is_empty() {
+        Some(doc)
+    } else {
+        query.get("doc").cloned()
+    };
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state, path_doc))
+}
+
+async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) {
     tracing::info!("WebSocket connection established");
 
-    // TODO: Authenticate user from initial message or query param
+    let (mut sender, mut receiver) = socket.split();
 
-    while let Some(msg) = socket.recv().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                if let Err(e) = handle_text_message(&mut socket, &state, &text).await {
-                    tracing::error!("Error handling message: {}", e);
+    // Track which documents this client is subscribed to
+    let mut subscriptions: HashMap<String, broadcast::Receiver<Vec<u8>>> = HashMap::new();
+
+    loop {
+        tokio::select! {
+            // Handle incoming messages from client
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Binary(data))) => {
+                        // Diagnostic logging for incoming binary frames
+                        tracing::debug!("Received WebSocket Binary message ({} bytes)", data.len());
+                        if !data.is_empty() {
+                            tracing::debug!("Message type byte: {}", data[0]);
+                            let payload_len = data.len().saturating_sub(1);
+                            tracing::debug!("Payload length (after msg type): {}", payload_len);
+                            let snippet_len = std::cmp::min(16, payload_len);
+                            if snippet_len > 0 {
+                                // Show a short debug trace of the payload bytes (use trace level to avoid clutter)
+                                tracing::trace!("Payload snippet (first {} bytes): {:?}", snippet_len, &data[1..1 + snippet_len]);
+                            }
+                        } else {
+                            tracing::warn!("Received Binary message with zero length");
+                        }
+
+                        if let Err(e) = handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc).await {
+                            tracing::error!("Error handling binary message: {}", e);
+                        }
+                    }
+                    Some(Ok(Message::Close(frame))) => {
+                        tracing::info!("Client closed connection (close frame = {:?})", frame);
+                        break;
+                    }
+                    Some(Ok(Message::Text(t))) => {
+                        tracing::debug!("Received Text WebSocket message ({} chars)", t.len());
+                    }
+                    Some(Ok(Message::Ping(p))) => {
+                        tracing::debug!("Received Ping ({} bytes)", p.len());
+                    }
+                    Some(Ok(Message::Pong(p))) => {
+                        tracing::debug!("Received Pong ({} bytes)", p.len());
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        break;
+                    }
+                    None => {
+                        tracing::info!("WebSocket closed");
+                        break;
+                    }
+                    _ => {
+                        tracing::debug!("Received other WebSocket message variant");
+                    }
                 }
             }
-            Ok(Message::Binary(data)) => {
-                if let Err(e) = handle_binary_message(&mut socket, &state, &data).await {
-                    tracing::error!("Error handling binary message: {}", e);
+
+            // Handle broadcast updates from other clients
+            update = async {
+                for (_guid, receiver) in subscriptions.iter_mut() {
+                    match receiver.try_recv() {
+                        Ok(update_data) => {
+                            return Some(update_data);
+                        }
+                        Err(broadcast::error::TryRecvError::Empty) => continue,
+                        Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                            tracing::warn!("Client lagged behind on updates");
+                        }
+                        Err(broadcast::error::TryRecvError::Closed) => {}
+                    }
+                }
+                None::<Vec<u8>>
+            } => {
+                if let Some(update_data) = update {
+                    // Trace-level hex dump of the outgoing broadcast to this client (first 256 bytes)
+                    {
+                        let dump_len = std::cmp::min(256, update_data.len());
+                        if dump_len > 0 {
+                            let dump = update_data[..dump_len]
+                                .iter()
+                                .map(|b| format!("{:02x}", b))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            tracing::trace!(
+                                "Outgoing per-client broadcast payload hex (first {} bytes): {}",
+                                dump_len,
+                                dump
+                            );
+                        } else {
+                            tracing::trace!("Outgoing per-client broadcast payload is empty");
+                        }
+                    }
+
+                    if let Err(e) = sender.send(Message::Binary(Bytes::from(update_data))).await {
+                        tracing::error!("Failed to send broadcast: {}", e);
+                        break;
+                    }
                 }
             }
-            Ok(Message::Close(_)) => {
-                tracing::info!("Client closed connection");
-                break;
-            }
-            Err(e) => {
-                tracing::error!("WebSocket error: {}", e);
-                break;
-            }
-            _ => {}
         }
     }
 
     tracing::info!("WebSocket connection closed");
 }
 
-async fn handle_text_message(
-    socket: &mut WebSocket,
+async fn handle_binary_message(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
-    text: &str,
+    data: &[u8],
+    subscriptions: &mut HashMap<String, broadcast::Receiver<Vec<u8>>>,
+    doc: &Option<String>,
 ) -> anyhow::Result<()> {
-    let msg: SyncMessage = serde_json::from_str(text)?;
+    // Yjs y-protocols message format:
+    // varUint(messageType) • varByteArray(payload)
+    // Message types:
+    // 0 = Sync Step 1 (client sends state vector)
+    // 1 = Sync Step 2 (server sends missing updates)
+    // 2 = Update (incremental update)
+    // 3 = Awareness (cursor position, etc)
 
-    match msg {
-        SyncMessage::SyncStep1 {
-            document_id,
-            state_vector,
-        } => {
-            tracing::debug!("Sync step 1 for document: {}", document_id);
-            // TODO: Load document from DB, compute diff, send back
+    if data.is_empty() {
+        tracing::warn!("handle_binary_message called with empty data");
+        return Ok(());
+    }
+
+    let (msg_type, rest) = read_var_from_slice(data)?;
+
+    // Now read the payload as varByteArray (length prefixed)
+    let (payload_len, payload_start) = read_var_from_slice(rest)?;
+    let payload_len = payload_len as usize;
+
+    if payload_start.len() < payload_len {
+        tracing::warn!(
+            "Message payload length mismatch: declared={}, available={}",
+            payload_len,
+            payload_start.len()
+        );
+        return Ok(());
+    }
+
+    let payload = &payload_start[..payload_len];
+
+    tracing::debug!(
+        "handle_binary_message: msg_type={} total_len={} payload_len={}",
+        msg_type,
+        data.len(),
+        payload.len()
+    );
+
+    match msg_type {
+        0 => {
+            // Sync Step 1: Client sends state vector
+            handle_sync_step1(sender, state, payload, subscriptions, doc).await?;
         }
-        SyncMessage::SyncStep2 {
-            document_id,
-            update,
-        } => {
-            tracing::debug!("Sync step 2 for document: {}", document_id);
-            // TODO: Apply update to document, save to DB, broadcast to others
+        1 => {
+            // Sync Step 2 is normally server -> client only. If we receive a msg_type=1 from a client,
+            // it's likely a misrouted message. Log and ignore.
+            tracing::warn!(
+                "Received msg_type=1 from client (Sync Step 2); payload_len={}",
+                payload.len()
+            );
         }
-        SyncMessage::Update {
-            document_id,
-            update,
-        } => {
-            tracing::debug!("Update for document: {}", document_id);
-            // TODO: Apply update, save to DB, broadcast to others
+        2 => {
+            // Update: Client sends incremental update
+            handle_update(sender, state, payload, doc).await?;
         }
-        SyncMessage::Awareness { update } => {
-            tracing::debug!("Awareness update");
-            // TODO: Broadcast awareness update to other clients
+        3 => {
+            // Awareness: Broadcast to other clients
+            handle_awareness(sender, state, payload).await?;
+        }
+        _ => {
+            tracing::warn!("Unknown message type: {}", msg_type);
         }
     }
 
     Ok(())
 }
 
-async fn handle_binary_message(
-    socket: &mut WebSocket,
+async fn handle_sync_step1(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     state: &AppState,
-    data: &[u8],
+    payload: &[u8],
+    subscriptions: &mut HashMap<String, broadcast::Receiver<Vec<u8>>>,
+    doc: &Option<String>,
 ) -> anyhow::Result<()> {
-    // Binary messages are typically Yjs updates
-    // For now, we'll expect JSON in text messages
-    tracing::debug!("Received binary message of {} bytes", data.len());
+    // Payload is the state vector (already decoded as varByteArray by caller)
+    let state_vector_bytes = payload;
+
+    // When using path-based doc id, use it directly
+    let guid = match doc.as_ref() {
+        Some(path_guid) => path_guid.clone(),
+        None => {
+            tracing::warn!("Sync step 1 received without document guid in path");
+            return Ok(());
+        }
+    };
+
+    tracing::info!(
+        "Sync step 1 for document: {} (state_vector {} bytes)",
+        guid,
+        state_vector_bytes.len()
+    );
+
+    // Decode state vector
+    let state_vector = StateVector::decode_v1(state_vector_bytes)?;
+
+    // Load document from database
+    let doc_obj = load_or_create_document(state, &guid).await?;
+
+    // Compute diff (what client is missing)
+    let update = {
+        let txn = doc_obj.transact();
+        txn.encode_diff_v1(&state_vector)
+    };
+
+    // Send Sync Step 2 back to client
+    // Format: varUint(1) • varByteArray(update)
+    let mut response = Vec::new();
+    encode_var_uint(&mut response, 1)?; // Message type
+    encode_var_uint(&mut response, update.len() as u32)?; // Payload length
+    response.extend_from_slice(&update);
+
+    sender.send(Message::Binary(Bytes::from(response))).await?;
+
+    // Subscribe this client to document updates
+    if !subscriptions.contains_key(&guid) {
+        let receiver = state.sync_manager.subscribe(&guid).await;
+        subscriptions.insert(guid.clone(), receiver);
+        tracing::debug!("Client subscribed to document: {}", guid);
+    }
+
+    Ok(())
+}
+
+async fn handle_update(
+    _sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    payload: &[u8],
+    doc: &Option<String>,
+) -> anyhow::Result<()> {
+    // Payload is the update (already decoded as varByteArray by caller)
+    let update_bytes = payload;
+
+    // When using path-based doc id, use it directly
+    let guid = match doc.as_ref() {
+        Some(path_guid) => path_guid.clone(),
+        None => {
+            tracing::warn!("Update received without document guid in path");
+            return Ok(());
+        }
+    };
+
+    tracing::info!(
+        "Incoming update for document: {} ({} bytes)",
+        guid,
+        update_bytes.len()
+    );
+
+    // Load document from database
+    let doc_obj = load_or_create_document(state, &guid).await?;
+
+    // Apply update to document
+    let update = Update::decode_v1(update_bytes)?;
+    {
+        let mut txn = doc_obj.transact_mut();
+        txn.apply_update(update)?;
+    }
+
+    // Save updated document to database
+    save_document(state, &guid, &doc_obj).await?;
+
+    // Broadcast update to other clients
+    // Format: varUint(2) • varByteArray(update)
+    let mut broadcast_msg = Vec::new();
+    encode_var_uint(&mut broadcast_msg, 2)?; // Message type 2 = Update
+    encode_var_uint(&mut broadcast_msg, update_bytes.len() as u32)?; // Payload length
+    broadcast_msg.extend_from_slice(update_bytes);
+
+    if let Err(e) = state
+        .sync_manager
+        .broadcast_update(&guid, broadcast_msg)
+        .await
+    {
+        tracing::error!("Failed to broadcast update: {}", e);
+    }
+
+    Ok(())
+}
+
+async fn handle_awareness(
+    _sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    _state: &AppState,
+    payload: &[u8],
+) -> anyhow::Result<()> {
+    // TODO: Broadcast awareness to other connected clients
+    tracing::debug!("Awareness update ({} bytes)", payload.len());
+    Ok(())
+}
+
+// Load document from database, or create new one if doesn't exist
+async fn load_or_create_document(state: &AppState, guid: &str) -> anyhow::Result<Doc> {
+    // Try to load from database
+    let result = sqlx::query!("SELECT yjs_state FROM subdocs WHERE guid = $1", guid)
+        .fetch_optional(&state.pool)
+        .await?;
+
+    if let Some(record) = result {
+        // Document exists, load it
+        let doc = Doc::new();
+        let update = Update::decode_v1(&record.yjs_state)?;
+        {
+            let mut txn = doc.transact_mut();
+            txn.apply_update(update)?;
+        }
+
+        tracing::debug!("Loaded document {} from database", guid);
+        Ok(doc)
+    } else {
+        // Document doesn't exist, create new one
+        let doc = Doc::new();
+        tracing::debug!("Created new document {}", guid);
+        Ok(doc)
+    }
+}
+
+// Save document to database
+async fn save_document(state: &AppState, guid: &str, doc: &Doc) -> anyhow::Result<()> {
+    let (state_bytes, state_vector_bytes) = {
+        let txn = doc.transact();
+        let state_bytes = txn.encode_state_as_update_v1(&StateVector::default());
+        let state_vector_bytes = txn.state_vector().encode_v1();
+        (state_bytes, state_vector_bytes)
+    };
+
+    // Insert or update document
+    sqlx::query!(
+        r#"
+        INSERT INTO subdocs (guid, vault_id, doc_type, yjs_state, state_vector, modified_at)
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (guid) DO UPDATE
+        SET yjs_state = $4, state_vector = $5, modified_at = NOW()
+        "#,
+        guid,
+        uuid::Uuid::nil(), // TODO: Get actual vault_id from auth
+        "document",
+        state_bytes,
+        state_vector_bytes,
+    )
+    .execute(&state.pool)
+    .await?;
+
+    tracing::debug!("Saved document {} to database", guid);
     Ok(())
 }

@@ -6,7 +6,7 @@ import eslintConfigPrettier from 'eslint-config-prettier'
 
 export default [
     { files: ['**/*.{js,mjs,cjs,ts,jsx,tsx}'] },
-    { ignores: ['**/components/ui', '**/src-tauri'] },
+    { ignores: ['**/components/ui', '**/src-tauri', 'dist'] },
     { languageOptions: { globals: globals.browser } },
     pluginJs.configs.recommended,
     ...tseslint.configs.recommended,

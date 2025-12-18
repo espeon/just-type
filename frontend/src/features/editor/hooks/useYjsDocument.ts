@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useCallback } from 'react'
-import * as Y from 'yjs'
-import { encodeYjsState, decodeYjsState } from '@/lib/yjs/serializer'
+import { encodeYjsState } from '@/lib/yjs/serializer'
+import { getYDoc } from '@/lib/yjs/cache'
 
 interface UseYjsDocumentProps {
     documentId: string
@@ -13,16 +13,11 @@ export function useYjsDocument({
     initialState,
     onUpdate
 }: UseYjsDocumentProps) {
-    // Create new ydoc when documentId changes
-    const ydoc = useMemo(() => {
-        const doc = new Y.Doc()
-        if (initialState) {
-            decodeYjsState(initialState, doc)
-        }
-        return doc
-    }, [documentId])
+    const ydoc = useMemo(
+        () => getYDoc(documentId, initialState),
+        [documentId, initialState]
+    )
 
-    // Subscribe to updates
     useEffect(() => {
         if (!onUpdate) return
 
@@ -38,16 +33,8 @@ export function useYjsDocument({
         }
     }, [ydoc, onUpdate])
 
-    // Get current state
     const getState = useCallback(() => {
         return encodeYjsState(ydoc)
-    }, [ydoc])
-
-    // Cleanup on unmount or document change
-    useEffect(() => {
-        return () => {
-            ydoc.destroy()
-        }
     }, [ydoc])
 
     return { ydoc, getState }

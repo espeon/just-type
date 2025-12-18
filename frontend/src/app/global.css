@@ -176,6 +176,26 @@
     }
 }
 
+.emoji-size img.emoji {
+    height: 1em;
+    width: 1em;
+    margin: 0 0.05em 0 0.1em;
+    vertical-align: -0.1em;
+}
+
+.emoji-size-1-5 img.emoji {
+    height: 1.5em;
+    width: 1.5em;
+    margin: 0 0.05em 0 0.1em;
+    vertical-align: -0.1em;
+}
+.emoji-size-2 img.emoji {
+    height: 2em;
+    width: 2em;
+    margin: 0 0.05em 0 0.1em;
+    vertical-align: -0.1em;
+}
+
 .column-layout {
     @apply my-4 flex gap-4;
 }

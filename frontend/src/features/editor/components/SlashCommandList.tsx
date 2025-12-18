@@ -90,7 +90,7 @@ export const SlashCommandList = forwardRef<
     }
 
     return (
-        <div className="bg-popover border rounded-md shadow-md overflow-hidden min-w-[200px]">
+        <div className="bg-popover border rounded-md shadow-md overflow-hidden min-w-xs max-w-xs">
             {props.showSearch && (
                 <div className="p-2 border-b">
                     <Input

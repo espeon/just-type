@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
-import twemoji from 'twemoji'
+import twemoji from '@twemoji/api'
 import emojibase from 'emojibase-data/en/data.json'
 
 interface Emoji {
     emoji: string
+    codepoint: string
     label: string
 }
 
@@ -17,6 +18,19 @@ interface EmojiPickerProps {
     value?: string
     onSelect: (emoji: string) => void
 }
+
+const EMOJI_CATEGORY_NAMES: string[] = [
+    'smileys',
+    'people',
+    'modifiers',
+    'animals',
+    'food',
+    'activities',
+    'travel',
+    'objects',
+    'symbols',
+    'flags'
+]
 
 export function EmojiPicker({ value, onSelect }: EmojiPickerProps) {
     const [open, setOpen] = useState(false)
@@ -32,6 +46,7 @@ export function EmojiPicker({ value, onSelect }: EmojiPickerProps) {
             }
             categoryMap[category].push({
                 emoji: emoji.emoji,
+                codepoint: emoji.hexcode,
                 label: emoji.label
             })
         })
@@ -73,17 +88,23 @@ export function EmojiPicker({ value, onSelect }: EmojiPickerProps) {
                         ))}
                     </div>
                     <div className="grid grid-cols-8 gap-1 h-56 overflow-y-auto">
-                        {categories[activeCategory]?.map(({ emoji, label }) => (
-                            <button
-                                key={label}
-                                onClick={() => handleSelect(emoji)}
-                                className="text-2xl hover:bg-accent rounded p-1"
-                                dangerouslySetInnerHTML={{
-                                    __html: twemoji.parse(emoji)
-                                }}
-                                title={label}
-                            />
-                        ))}
+                        {categories[activeCategory]?.map(
+                            ({ emoji, label, codepoint }) => (
+                                <button
+                                    key={label}
+                                    onClick={() => handleSelect(emoji)}
+                                    className="text-2xl hover:bg-accent rounded p-1"
+                                    dangerouslySetInnerHTML={{
+                                        __html: twemoji.parse(
+                                            twemoji.convert.fromCodePoint(
+                                                codepoint
+                                            )
+                                        )
+                                    }}
+                                    title={label}
+                                />
+                            )
+                        )}
                     </div>
                 </div>
             </PopoverContent>
