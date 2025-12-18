@@ -34,7 +34,8 @@ export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
         ],
         editorProps: {
             attributes: {
-                class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8'
+                class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8',
+                'data-editor-content': 'true'
             }
         },
         onUpdate: () => {

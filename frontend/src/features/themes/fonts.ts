@@ -76,10 +76,20 @@ export function initializeFont() {
 }
 
 export function applyEditorFont(font: EditorFont) {
+    const fontStack = EDITOR_FONTS[font].stack
+
+    // Apply to elements with data-editor-content attribute
     const editorElements = document.querySelectorAll('[data-editor-content]')
     editorElements.forEach((el) => {
-        ;(el as HTMLElement).style.fontFamily = EDITOR_FONTS[font].stack
+        ;(el as HTMLElement).style.fontFamily = fontStack
     })
+
+    // Also apply to contenteditable divs (Tiptap editor content)
+    const contentEditables = document.querySelectorAll('[contenteditable]')
+    contentEditables.forEach((el) => {
+        ;(el as HTMLElement).style.fontFamily = fontStack
+    })
+
     localStorage.setItem('editor-font-family', font)
 }
 
