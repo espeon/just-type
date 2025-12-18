@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { EDITOR_FONTS, type EditorFont, getStoredEditorFont } from './fonts'
+import {
+    EDITOR_FONTS,
+    type EditorFont,
+    getStoredEditorFont,
+    applyEditorFont
+} from './fonts'
 
 export function EditorFontSelector() {
     const [selectedFont, setSelectedFont] = useState<EditorFont>('default')
@@ -15,16 +20,6 @@ export function EditorFontSelector() {
     const handleFontChange = (font: EditorFont) => {
         setSelectedFont(font)
         applyEditorFont(font)
-    }
-
-    const applyEditorFont = (font: EditorFont) => {
-        const editorElements = document.querySelectorAll(
-            '[data-editor-content]'
-        )
-        editorElements.forEach((el) => {
-            ;(el as HTMLElement).style.fontFamily = EDITOR_FONTS[font].stack
-        })
-        localStorage.setItem('editor-font-family', font)
     }
 
     if (!isLoaded) {
