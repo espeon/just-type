@@ -31,6 +31,20 @@ pub struct Subdoc {
     pub modified_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentMetadata {
+    pub guid: String,
+    pub vault_id: Uuid,
+    pub title: String,
+    pub doc_type: String,
+    pub icon: Option<String>,
+    pub description: Option<String>,
+    pub tags: Vec<String>,
+    pub parent_guid: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub modified_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
     pub email: String,

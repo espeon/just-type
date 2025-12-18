@@ -1,4 +1,5 @@
 use crate::api::auth::AppState;
+use crate::models::DocumentMetadata;
 use axum::{
     body::Bytes,
     extract::{
@@ -8,6 +9,7 @@ use axum::{
     http::StatusCode,
     response::Response,
 };
+use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use tokio::sync::broadcast;
@@ -424,7 +426,7 @@ async fn handle_sync_step1(
     let state_vector = StateVector::decode_v1(state_vector_bytes)?;
 
     // Load document from database (verifies it belongs to this vault)
-    let doc_obj = load_or_create_document(state, &guid, vault_id).await?;
+    let (doc_obj, metadata) = load_or_create_document(state, &guid, vault_id).await?;
 
     // Send diff to client
     let update = {
@@ -437,6 +439,14 @@ async fn handle_sync_step1(
         );
         diff
     };
+
+    // Send metadata to client (protocol type 2)
+    let metadata_json = serde_json::to_string(&metadata)?;
+    let mut metadata_msg = Vec::new();
+    encode_var_uint(&mut metadata_msg, 2)?; // Metadata protocol marker
+    encode_var_uint(&mut metadata_msg, 1)?; // Message type (Server -> Client metadata)
+    encode_var_uint(&mut metadata_msg, metadata_json.len() as u32)?; // Payload length
+    metadata_msg.extend_from_slice(metadata_json.as_bytes());
 
     // Send Sync Step 2 back to client
     // Format: varUint(0) • varUint(1) • varByteArray(update)
@@ -459,6 +469,11 @@ async fn handle_sync_step1(
     );
 
     sender.send(Message::Binary(Bytes::from(response))).await?;
+
+    // Send metadata to client
+    sender
+        .send(Message::Binary(Bytes::from(metadata_msg)))
+        .await?;
 
     // Subscribe this client to document updates
     if !subscriptions.contains_key(&guid) {
@@ -500,7 +515,7 @@ async fn handle_update(
     );
 
     // Load document from database
-    let doc_obj = load_or_create_document(state, &guid, vault_id).await?;
+    let (doc_obj, _metadata) = load_or_create_document(state, &guid, vault_id).await?;
 
     // Apply update to document
     let update = Update::decode_v1(update_bytes)?;
@@ -547,10 +562,24 @@ async fn load_or_create_document(
     state: &AppState,
     guid: &str,
     vault_id: Uuid,
-) -> anyhow::Result<Doc> {
+) -> anyhow::Result<(Doc, DocumentMetadata)> {
     // Try to load from database, verifying it belongs to this vault
     let result = sqlx::query!(
-        "SELECT yjs_state FROM subdocs WHERE guid = $1 AND vault_id = $2",
+        r#"
+        SELECT
+            s.yjs_state,
+            s.created_at,
+            s.modified_at,
+            s.parent_guid,
+            s.doc_type,
+            m.title,
+            m.icon,
+            m.description,
+            COALESCE(m.tags, '{}') as tags
+        FROM subdocs s
+        LEFT JOIN subdoc_metadata m ON s.guid = m.subdoc_guid
+        WHERE s.guid = $1 AND s.vault_id = $2
+        "#,
         guid,
         vault_id
     )
@@ -566,13 +595,43 @@ async fn load_or_create_document(
             txn.apply_update(update)?;
         }
 
+        let tags = record.tags.unwrap_or_default();
+
+        let metadata = DocumentMetadata {
+            guid: guid.to_string(),
+            vault_id,
+            title: record.title,
+            doc_type: record.doc_type,
+            icon: record.icon,
+            description: record.description,
+            tags,
+            parent_guid: record.parent_guid,
+            created_at: record.created_at,
+            modified_at: record.modified_at,
+        };
+
         tracing::debug!("Loaded document {} from vault {}", guid, vault_id);
-        Ok(doc)
+        Ok((doc, metadata))
     } else {
-        // Document doesn't exist, create new one
+        // Document doesn't exist, create new one with default metadata
         let doc = Doc::new();
+        let now = Utc::now();
+
+        let metadata = DocumentMetadata {
+            guid: guid.to_string(),
+            vault_id,
+            title: "Untitled".to_string(),
+            doc_type: "document".to_string(),
+            icon: None,
+            description: None,
+            tags: vec![],
+            parent_guid: None,
+            created_at: now,
+            modified_at: now,
+        };
+
         tracing::debug!("Created new document {} for vault {}", guid, vault_id);
-        Ok(doc)
+        Ok((doc, metadata))
     }
 }
 
@@ -621,6 +680,19 @@ async fn save_document(
         "document",
         state_bytes,
         state_vector_bytes,
+    )
+    .execute(&state.pool)
+    .await?;
+
+    // Ensure metadata record exists (insert default metadata if it doesn't)
+    sqlx::query!(
+        r#"
+        INSERT INTO subdoc_metadata (subdoc_guid, title, modified_at)
+        VALUES ($1, 'Untitled', NOW())
+        ON CONFLICT (subdoc_guid) DO UPDATE
+        SET modified_at = NOW()
+        "#,
+        guid
     )
     .execute(&state.pool)
     .await?;
