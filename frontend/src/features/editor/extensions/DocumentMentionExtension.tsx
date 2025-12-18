@@ -19,7 +19,7 @@ export const DocumentMentionExtension = Mention.extend<DocumentMentionOptions>({
             HTMLAttributes: {
                 class: 'mention'
             },
-            renderLabel({ node }): string {
+            renderLabel({ node }: { node: any }): string {
                 return `@${node.attrs.label ?? node.attrs.id}`
             },
             suggestion: {

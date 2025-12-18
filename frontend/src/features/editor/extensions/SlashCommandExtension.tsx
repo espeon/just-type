@@ -112,12 +112,24 @@ export const SlashCommandExtension = Extension.create({
                     let popup: HTMLElement | null = null
 
                     const updatePosition = async (
-                        clientRect: (() => DOMRect) | null
+                        clientRect:
+                            | (() => DOMRect)
+                            | (() => DOMRect | null)
+                            | null
+                            | undefined
                     ) => {
                         if (!clientRect || !popup) return
 
+                        const getBoundingClientRect = () => {
+                            const rect =
+                                typeof clientRect === 'function'
+                                    ? clientRect()
+                                    : null
+                            return rect || new DOMRect()
+                        }
+
                         const virtualElement = {
-                            getBoundingClientRect: clientRect
+                            getBoundingClientRect
                         }
 
                         const { x, y } = await computePosition(
