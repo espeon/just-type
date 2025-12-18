@@ -54,13 +54,23 @@ export function useServerSync({
             console.log('WebSocket status update:', state)
             console.log('Provider state:', {
                 wsconnected: provider.wsconnected,
-                synced: provider.synced
+                synced: provider.synced,
+                url: provider.url,
+                room: provider.room
             })
             setState({
                 connected: provider.wsconnected,
                 synced: provider.synced
             })
         }
+
+        // Log initial provider state
+        console.log('Initial provider state:', {
+            wsconnected: provider.wsconnected,
+            synced: provider.synced,
+            url: provider.url,
+            room: provider.room
+        })
 
         // Log document updates
         const updateHandler = (update: Uint8Array, origin: any) => {

@@ -1,6 +1,8 @@
 import { useTiptapEditor } from '../hooks/useTiptapEditor'
 import { useCollaboration } from '../hooks/useCollaboration'
+import { useServerSync } from '../hooks/useServerSync'
 import { useVaultStore } from '@/features/vault/stores/vaultStore'
+import { useConfigStore } from '@/features/vault/stores/configStore'
 import { useEffect, useRef, useState } from 'react'
 import { Document } from '@/features/vault/api/vaultCommands'
 import { EditorBar } from './EditorBar'
@@ -42,12 +44,24 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [insertBefore, setInsertBefore] = useState(false)
     const dragHandleNodePos = useRef<number | null>(null)
 
+    console.log('Rendering BlockSuiteEditor for document', document.id)
+
     const { ydoc } = useYjsDocument({
         documentId: document.id,
         initialState: document.state
     })
 
     const { editor } = useTiptapEditor({ ydoc })
+
+    const currentVault = useConfigStore((state) => state.getCurrentVault())
+    const authToken = useConfigStore((state) => state.authToken)
+
+    const { connected: serverConnected, synced: serverSynced } = useServerSync({
+        ydoc,
+        documentId: document.id,
+        enabled: currentVault?.syncEnabled ?? false,
+        authToken
+    })
 
     useEffect(() => {
         if (!ydoc) return
@@ -123,6 +137,9 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                 connected={connected}
                 peerCount={peerCount}
                 onToggle={() => setDialogOpen(true)}
+                serverSyncEnabled={currentVault?.syncEnabled}
+                serverConnected={serverConnected}
+                serverSynced={serverSynced}
             />
             <div className="flex-1 overflow-auto">
                 <div className="max-w-4xl mx-auto">

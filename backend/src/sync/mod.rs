@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
-use uuid::Uuid;
-use yrs::{Doc, StateVector, Update};
+use yrs::updates::decoder::Decode;
+use yrs::updates::encoder::Encode;
+use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 
 /// Manages active document sync sessions
 pub struct SyncManager {

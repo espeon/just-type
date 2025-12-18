@@ -167,15 +167,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
             await storage.writeDocument(vault.localPath, id, metadata, state)
 
-            await get().buildIndex()
-
-            set({
-                currentDocument: {
-                    ...currentDocument,
-                    metadata,
-                    state
-                }
-            })
+            // don't call buildIndex() here - it causes unnecessary re-renders
+            // and the editor already has the state in memory
         } catch (error) {
             set({ error: String(error) })
             throw error

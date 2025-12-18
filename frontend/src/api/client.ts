@@ -1,6 +1,6 @@
 import { useConfigStore } from '@/features/vault/stores/configStore'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
 
 interface ApiError {
     message: string
@@ -20,10 +20,7 @@ class ApiClient {
               }
     }
 
-    async request<T>(
-        endpoint: string,
-        options: RequestInit = {}
-    ): Promise<T> {
+    async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
         const url = `${API_BASE_URL}${endpoint}`
         const headers = this.getAuthHeaders()
 

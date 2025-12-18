@@ -35,7 +35,7 @@ impl From<Vault> for VaultResponse {
 pub fn vault_routes() -> Router<AppState> {
     Router::new()
         .route("/", get(list_vaults).post(create_vault))
-        .route("/:vault_id", get(get_vault).delete(delete_vault))
+        .route("/{vault_id}", get(get_vault).delete(delete_vault))
 }
 
 async fn list_vaults(

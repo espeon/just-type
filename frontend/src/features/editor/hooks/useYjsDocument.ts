@@ -15,7 +15,7 @@ export function useYjsDocument({
 }: UseYjsDocumentProps) {
     const ydoc = useMemo(
         () => getYDoc(documentId, initialState),
-        [documentId, initialState]
+        [documentId] // removed initialState - only load once per documentId
     )
 
     useEffect(() => {

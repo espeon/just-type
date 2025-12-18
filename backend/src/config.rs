@@ -11,18 +11,16 @@ pub struct Config {
 impl Config {
     pub fn load() -> Result<Self> {
         dotenvy::dotenv().ok();
-        
-        let database_url = std::env::var("DATABASE_URL")
-            .context("DATABASE_URL must be set")?;
-        
+
+        let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
+
         let port = std::env::var("PORT")
-            .unwrap_or_else(|_| "3000".to_string())
+            .unwrap_or_else(|_| "4000".to_string())
             .parse()
             .context("PORT must be a valid number")?;
-        
-        let jwt_secret = std::env::var("JWT_SECRET")
-            .context("JWT_SECRET must be set")?;
-        
+
+        let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET must be set")?;
+
         Ok(Self {
             database_url,
             port,

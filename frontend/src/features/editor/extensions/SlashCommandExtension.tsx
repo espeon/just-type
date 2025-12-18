@@ -8,7 +8,7 @@ import {
     SlashCommandListRef
 } from '../components/SlashCommandList'
 
-interface SlashCommand {
+export interface SlashCommand {
     title: string
     description: string
     command: (editor: Editor) => void

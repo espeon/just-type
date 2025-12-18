@@ -86,7 +86,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
     let mut subscriptions: HashMap<String, broadcast::Receiver<Vec<u8>>> = HashMap::new();
 
     loop {
-        tracing::trace!("Waiting for next message...");
         tokio::select! {
             // Handle incoming messages from client
             msg = receiver.next() => {

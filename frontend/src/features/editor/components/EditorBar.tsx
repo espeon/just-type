@@ -1,5 +1,7 @@
 import {
     ChevronRight,
+    Cloud,
+    CloudOff,
     Ellipsis,
     FileText,
     Users,
@@ -38,13 +40,19 @@ interface EditorBarProps {
     connected: boolean
     peerCount: number
     onToggle: () => void
+    serverSyncEnabled?: boolean
+    serverConnected?: boolean
+    serverSynced?: boolean
 }
 
 export function EditorBar({
     editorPath,
     connected,
     peerCount,
-    onToggle
+    onToggle,
+    serverSyncEnabled,
+    serverConnected,
+    serverSynced
 }: EditorBarProps) {
     return (
         <div className="flex items-center justify-between gap-2 px-4 py-1.5 border-b sticky top-0 left-0 z-10 pl-10 bg-background">
@@ -87,6 +95,25 @@ export function EditorBar({
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                     <Users className="h-4 w-4" />
                     <span>{peerCount + 1}</span>
+                </div>
+            )}
+
+            {serverSyncEnabled && (
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    {serverConnected ? (
+                        <Cloud
+                            className={`h-4 w-4 ${serverSynced ? 'text-green-500' : 'text-yellow-500'}`}
+                        />
+                    ) : (
+                        <CloudOff className="h-4 w-4" />
+                    )}
+                    <span>
+                        {serverConnected
+                            ? serverSynced
+                                ? 'Synced'
+                                : 'Syncing...'
+                            : 'Offline'}
+                    </span>
                 </div>
             )}
         </div>
