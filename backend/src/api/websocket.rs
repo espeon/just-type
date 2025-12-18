@@ -141,23 +141,29 @@ async fn handle_socket(socket: WebSocket, state: AppState, doc: Option<String>) 
             }
 
             // Handle broadcast updates from other clients
+            // Only select on broadcast if we have subscriptions
             update = async {
-                tracing::trace!("Checking for broadcast updates");
-                for (_guid, receiver) in subscriptions.iter_mut() {
-                    match receiver.try_recv() {
-                        Ok(update_data) => {
-                            tracing::info!("Got broadcast update: {} bytes", update_data.len());
-                            return Some(update_data);
+                if subscriptions.is_empty() {
+                    std::future::pending().await
+                } else {
+                    for (_guid, receiver) in subscriptions.iter_mut() {
+                        match receiver.try_recv() {
+                            Ok(update_data) => {
+                                tracing::info!("Got broadcast update: {} bytes", update_data.len());
+                                return Some(update_data);
+                            }
+                            Err(broadcast::error::TryRecvError::Empty) => continue,
+                            Err(broadcast::error::TryRecvError::Lagged(_)) => {
+                                tracing::warn!("Client lagged behind on updates");
+                            }
+                            Err(broadcast::error::TryRecvError::Closed) => {}
                         }
-                        Err(broadcast::error::TryRecvError::Empty) => continue,
-                        Err(broadcast::error::TryRecvError::Lagged(_)) => {
-                            tracing::warn!("Client lagged behind on updates");
-                        }
-                        Err(broadcast::error::TryRecvError::Closed) => {}
                     }
+                    // If no updates available, sleep briefly to avoid busy loop
+                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                    None::<Vec<u8>>
                 }
-                None::<Vec<u8>>
-            } => {
+            }, if !subscriptions.is_empty() => {
                 if let Some(update_data) = update {
                     // Trace-level hex dump of the outgoing broadcast to this client (first 256 bytes)
                     {
