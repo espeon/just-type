@@ -1,5 +1,11 @@
 import { apiClient } from './client'
-import { ServerVault, CreateVaultRequest, DocumentMetadata } from './types'
+import {
+    ServerVault,
+    CreateVaultRequest,
+    DocumentMetadata,
+    VaultMember,
+    AddVaultMemberRequest
+} from './types'
 
 export const vaultsApi = {
     list: async (): Promise<ServerVault[]> => {
@@ -23,6 +29,26 @@ export const vaultsApi = {
     ): Promise<DocumentMetadata[]> => {
         return apiClient.get<DocumentMetadata[]>(
             `/api/vaults/${vaultId}/documents/metadata`
+        )
+    },
+
+    listMembers: async (vaultId: string): Promise<VaultMember[]> => {
+        return apiClient.get<VaultMember[]>(`/api/vaults/${vaultId}/members`)
+    },
+
+    addMember: async (
+        vaultId: string,
+        data: AddVaultMemberRequest
+    ): Promise<VaultMember> => {
+        return apiClient.post<VaultMember>(
+            `/api/vaults/${vaultId}/members`,
+            data
+        )
+    },
+
+    removeMember: async (vaultId: string, memberId: string): Promise<void> => {
+        return apiClient.delete<void>(
+            `/api/vaults/${vaultId}/members/${memberId}`
         )
     }
 }

@@ -41,3 +41,16 @@ export interface DocumentMetadata {
     created_at: string
     modified_at: string
 }
+
+export interface VaultMember {
+    id: string
+    vault_id: string
+    user_id: string
+    role: string
+    joined_at: string
+}
+
+export interface AddVaultMemberRequest {
+    user_id: string
+    role?: string
+}

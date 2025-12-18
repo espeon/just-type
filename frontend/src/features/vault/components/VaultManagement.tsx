@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import { useVaultStore } from '../stores/vaultStore'
 import { vaultsApi } from '@/api/vaults'
+import { VaultSharingDialog } from './VaultSharingDialog'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Share2 } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -19,6 +20,7 @@ export function VaultManagement() {
     const { loadVault } = useVaultStore()
     const [vaultToDelete, setVaultToDelete] = useState<string | null>(null)
     const [isDeleting, setIsDeleting] = useState(false)
+    const [sharingVaultId, setSharingVaultId] = useState<string | null>(null)
 
     const handleDeleteVault = async (vaultId: string) => {
         setIsDeleting(true)
@@ -93,16 +95,33 @@ export function VaultManagement() {
                                     {vault.localPath}
                                 </p>
                             </div>
-                            {currentVaultId !== vault.id && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setVaultToDelete(vault.id)}
-                                    className="text-destructive hover:text-destructive h-8 w-8 p-0"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            )}
+                            <div className="flex gap-2">
+                                {vault.syncEnabled && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() =>
+                                            setSharingVaultId(vault.id)
+                                        }
+                                        className="h-8 w-8 p-0"
+                                        title="share vault"
+                                    >
+                                        <Share2 className="h-4 w-4" />
+                                    </Button>
+                                )}
+                                {currentVaultId !== vault.id && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() =>
+                                            setVaultToDelete(vault.id)
+                                        }
+                                        className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -141,6 +160,14 @@ export function VaultManagement() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {sharingVaultId && (
+                <VaultSharingDialog
+                    open={!!sharingVaultId}
+                    onOpenChange={(open) => !open && setSharingVaultId(null)}
+                    vaultId={sharingVaultId}
+                />
+            )}
         </div>
     )
 }
