@@ -145,23 +145,34 @@ export function useServerSync({
         const messageHandler = (message: Uint8Array) => {
             if (message.length < 1) return
 
-            // Check if it's a JSON error message (starts with '{')
-            if (message[0] === 123) {
-                // '{' character
-                try {
-                    const text = new TextDecoder().decode(message)
-                    const data = JSON.parse(text)
-                    if (data.type === 'error' && data.message) {
-                        console.error('Server error:', data.message)
-                        if (onError) {
-                            onError(data.message)
-                        }
+            // Log raw message for debugging
+            console.log('Raw message received:', {
+                length: message.length,
+                firstByte: message[0],
+                firstBytes: Array.from(message.slice(0, 20))
+            })
+
+            // Try to decode as text first
+            try {
+                const text = new TextDecoder().decode(message)
+                console.log('Decoded as text:', text)
+                const data = JSON.parse(text)
+                if (data.type === 'error' && data.message) {
+                    console.error('Server error:', data.message)
+                    if (onError) {
+                        onError(data.message)
                     }
                     return
-                } catch (e) {
-                    console.error('Failed to parse error message:', e)
-                    return
                 }
+            } catch (e) {
+                console.log('Not JSON text:', e)
+            }
+
+            // Check if it's a metadata message (starts with 2)
+            if (message[0] === 2) {
+                // Process as metadata message
+            } else {
+                return
             }
 
             if (message.length < 2) return
