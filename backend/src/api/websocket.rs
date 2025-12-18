@@ -213,7 +213,7 @@ async fn handle_binary_message(
     );
 
     let (protocol_type, rest1) = read_var_from_slice(data)?;
-    tracing::debug!(
+    tracing::info!(
         "Decoded protocol_type: {}, remaining bytes: {}",
         protocol_type,
         rest1.len()
@@ -279,8 +279,20 @@ async fn handle_binary_message(
         }
     } else if protocol_type == 1 {
         // Awareness protocol message
+        tracing::debug!("Received awareness message, rest1 len: {}", rest1.len());
+        tracing::debug!(
+            "Awareness raw bytes (first 20): {:?}",
+            &rest1[..std::cmp::min(20, rest1.len())]
+        );
+
         let (payload_len, payload_start) = read_var_from_slice(rest1)?;
         let payload_len = payload_len as usize;
+
+        tracing::debug!(
+            "Awareness payload_len: {}, remaining: {}",
+            payload_len,
+            payload_start.len()
+        );
 
         if payload_start.len() < payload_len {
             tracing::warn!(
@@ -292,6 +304,10 @@ async fn handle_binary_message(
         }
 
         let payload = &payload_start[..payload_len];
+        tracing::debug!(
+            "Awareness payload (first 32 bytes): {:?}",
+            &payload[..std::cmp::min(32, payload.len())]
+        );
         handle_awareness(sender, state, payload).await?;
     } else {
         tracing::warn!("Unknown protocol type: {}", protocol_type);
