@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import { useVaultStore } from '../stores/vaultStore'
+import { vaultsApi } from '@/api/vaults'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Trash2 } from 'lucide-react'
@@ -17,19 +18,39 @@ export function VaultManagement() {
         useConfigStore()
     const { loadVault } = useVaultStore()
     const [vaultToDelete, setVaultToDelete] = useState<string | null>(null)
+    const [isDeleting, setIsDeleting] = useState(false)
 
     const handleDeleteVault = async (vaultId: string) => {
-        removeVault(vaultId)
+        setIsDeleting(true)
+        try {
+            const vault = vaults.find((v) => v.id === vaultId)
 
-        if (currentVaultId === vaultId && vaults.length > 1) {
-            const nextVault = vaults.find((v) => v.id !== vaultId)
-            if (nextVault) {
-                setCurrentVault(nextVault.id)
-                await loadVault()
+            // Delete from server if vault is synced
+            if (vault?.syncEnabled) {
+                try {
+                    await vaultsApi.delete(vaultId)
+                } catch (error) {
+                    console.error('Failed to delete vault from server:', error)
+                    // Continue with local deletion even if server deletion fails
+                }
             }
-        }
 
-        setVaultToDelete(null)
+            // Delete from local config
+            removeVault(vaultId)
+
+            // Switch to another vault if deleting the current one
+            if (currentVaultId === vaultId && vaults.length > 1) {
+                const nextVault = vaults.find((v) => v.id !== vaultId)
+                if (nextVault) {
+                    setCurrentVault(nextVault.id)
+                    await loadVault()
+                }
+            }
+
+            setVaultToDelete(null)
+        } finally {
+            setIsDeleting(false)
+        }
     }
 
     if (vaults.length === 0) {
@@ -103,6 +124,7 @@ export function VaultManagement() {
                         <Button
                             variant="outline"
                             onClick={() => setVaultToDelete(null)}
+                            disabled={isDeleting}
                         >
                             cancel
                         </Button>
@@ -112,8 +134,9 @@ export function VaultManagement() {
                                 vaultToDelete &&
                                 handleDeleteVault(vaultToDelete)
                             }
+                            disabled={isDeleting}
                         >
-                            delete
+                            {isDeleting ? 'deleting...' : 'delete'}
                         </Button>
                     </div>
                 </DialogContent>
