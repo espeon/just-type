@@ -168,8 +168,20 @@ async fn handle_socket(
     // Track which documents this client is subscribed to
     let mut subscriptions: HashMap<String, broadcast::Receiver<Vec<u8>>> = HashMap::new();
 
+    // Keep-alive: send ping every 5 seconds to prevent client timeout
+    let mut keep_alive_interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+
     loop {
         tokio::select! {
+            // Keep-alive ping
+            _ = keep_alive_interval.tick() => {
+                tracing::debug!("Sending keep-alive ping");
+                if let Err(e) = sender.send(Message::Ping(Bytes::new())).await {
+                    tracing::info!("Failed to send keep-alive ping: {}", e);
+                    break;
+                }
+            }
+
             // Handle incoming messages from client
             msg = receiver.next() => {
                 tracing::info!("Received something from socket: {:?}", msg.is_some());
