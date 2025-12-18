@@ -119,15 +119,9 @@ export function useServerSync({
                 synced: provider.synced
             })
 
-            // If connection was lost, it might be a permission error
-            if (state.status === 'disconnected' && onError) {
-                onError(
-                    'Connection lost - you may not have permission to access this vault'
-                )
-                // Destroy provider to stop reconnection attempts
-                provider.destroy()
-                providerRef.current = null
-            }
+            // Only treat disconnection as error if we had a successful connection before
+            // (indicating permission was granted, so a disconnect is unexpected)
+            // Otherwise let y-websocket auto-reconnect
         }
 
         // Handle document updates
@@ -185,15 +179,33 @@ export function useServerSync({
             }
         }
 
+        // Handle connection errors (like auth failures)
+        const connectionErrorHandler = (error: Event) => {
+            const wsError = error as any
+            // Check if it's an auth/permission error (4000+ are custom close codes)
+            // 4003 = permission denied, 4001 = unauthorized, etc.
+            if (wsError.code >= 4000) {
+                if (onError) {
+                    onError(
+                        'Connection failed - you may not have permission to access this vault'
+                    )
+                }
+                provider.destroy()
+                providerRef.current = null
+            }
+        }
+
         provider.on('message', messageHandler)
         provider.on('status', updateState)
         provider.on('sync', updateState)
+        provider.on('connection-error', connectionErrorHandler)
         ydoc.on('update', updateHandler)
 
         providerRef.current = provider
 
         return () => {
             provider.off('message', messageHandler)
+            provider.off('connection-error', connectionErrorHandler)
             ydoc.off('update', updateHandler)
             provider.destroy()
             providerRef.current = null
