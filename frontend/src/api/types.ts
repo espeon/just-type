@@ -39,6 +39,8 @@ export interface DeletedVault {
 
 export interface CreateVaultRequest {
     name: string
+    org_id?: string
+    vault_type?: string
 }
 
 export interface DocumentMetadata {

@@ -4,6 +4,7 @@ import { AuthDialog } from '@/features/auth/components/AuthDialog'
 import { VaultManagement } from '@/features/vault/components/VaultManagement'
 import { ProfileSettings } from '@/features/vault/components/ProfileSettings'
 import { DeletedVaults } from '@/features/vault/components/DeletedVaults'
+import { OrganizationSettings } from '@/features/organization/components/OrganizationSettings'
 import { useConfigStore } from '@/features/vault/stores/configStore'
 import { Button } from '@/components/ui/button'
 import { createFileRoute } from '@tanstack/react-router'
@@ -12,7 +13,7 @@ export const Route = createFileRoute('/settings')({
     component: RouteComponent
 })
 
-type SettingsTab = 'account' | 'vaults' | 'theme'
+type SettingsTab = 'account' | 'vaults' | 'organizations' | 'theme'
 
 function RouteComponent() {
     const { userId, clearAuth } = useConfigStore()
@@ -22,6 +23,7 @@ function RouteComponent() {
     const tabs: { id: SettingsTab; label: string }[] = [
         { id: 'account', label: 'account' },
         { id: 'vaults', label: 'vaults' },
+        { id: 'organizations', label: 'organizations' },
         { id: 'theme', label: 'theme' }
     ]
 
@@ -109,6 +111,27 @@ function RouteComponent() {
                                     </h2>
                                     <DeletedVaults />
                                 </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'organizations' && (
+                            <div>
+                                {userId ? (
+                                    <OrganizationSettings />
+                                ) : (
+                                    <div className="space-y-2">
+                                        <p className="text-sm text-muted-foreground">
+                                            sign in to manage organizations
+                                        </p>
+                                        <Button
+                                            onClick={() =>
+                                                setAuthDialogOpen(true)
+                                            }
+                                        >
+                                            sign in / register
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         )}
 

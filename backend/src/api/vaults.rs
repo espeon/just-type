@@ -2,7 +2,6 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    response::IntoResponse,
     routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +16,8 @@ use crate::{
 #[derive(Debug, Deserialize)]
 pub struct CreateVaultRequest {
     pub name: String,
+    pub org_id: Option<Uuid>,
+    pub vault_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +62,17 @@ async fn list_vaults(
     claims: Claims,
 ) -> Result<Json<Vec<VaultResponse>>, StatusCode> {
     let vaults = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC",
+        r#"
+        SELECT DISTINCT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
+        FROM vaults v
+        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $1
+        WHERE v.deleted_at IS NULL AND (
+            v.user_id = $1 OR
+            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL) OR
+            EXISTS (SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $1)
+        )
+        ORDER BY v.created_at DESC
+        "#,
     )
     .bind(claims.sub)
     .fetch_all(&state.pool)
@@ -76,17 +87,53 @@ async fn create_vault(
     claims: Claims,
     Json(req): Json<CreateVaultRequest>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
-    let vault = sqlx::query_as::<_, Vault>(
-        "INSERT INTO vaults (id, user_id, name) VALUES ($1, $2, $3) RETURNING id, user_id, name, created_at, deleted_at, deleted_by",
-    )
-    .bind(Uuid::new_v4())
-    .bind(claims.sub)
-    .bind(req.name)
-    .fetch_one(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let vault_type = req.vault_type.unwrap_or_else(|| "user".to_string());
 
-    Ok(Json(VaultResponse::from(vault)))
+    if !["user", "org", "shared"].contains(&vault_type.as_str()) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if let Some(org_id) = req.org_id {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+        if role != "admin" {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
+        let vault = sqlx::query_as::<_, Vault>(
+            "INSERT INTO vaults (id, org_id, vault_type, name) VALUES ($1, $2, $3, $4) RETURNING id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by",
+        )
+        .bind(Uuid::new_v4())
+        .bind(org_id)
+        .bind(vault_type)
+        .bind(req.name)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        Ok(Json(VaultResponse::from(vault)))
+    } else {
+        let vault = sqlx::query_as::<_, Vault>(
+            "INSERT INTO vaults (id, user_id, vault_type, name) VALUES ($1, $2, $3, $4) RETURNING id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by",
+        )
+        .bind(Uuid::new_v4())
+        .bind(claims.sub)
+        .bind(vault_type)
+        .bind(req.name)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        Ok(Json(VaultResponse::from(vault)))
+    }
 }
 
 async fn get_vault(
@@ -95,10 +142,16 @@ async fn get_vault(
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
     let vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
-         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
-            SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
-         ))",
+        r#"
+        SELECT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
+        FROM vaults v
+        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $2
+        WHERE v.id = $1 AND v.deleted_at IS NULL AND (
+            v.user_id = $2 OR
+            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL) OR
+            EXISTS (SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2)
+        )
+        "#,
     )
     .bind(vault_id)
     .bind(claims.sub)
@@ -115,22 +168,45 @@ async fn delete_vault(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    // Soft delete the vault
-    let result = sqlx::query(
-        "UPDATE vaults SET deleted_at = NOW(), deleted_by = $1 WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL",
+    let vault = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind(vault_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let can_delete = if let Some(user_id) = vault.user_id {
+        user_id == claims.sub
+    } else if let Some(org_id) = vault.org_id {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        role == Some("admin".to_string())
+    } else {
+        false
+    };
+
+    if !can_delete {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    sqlx::query(
+        "UPDATE vaults SET deleted_at = NOW(), deleted_by = $1 WHERE id = $2 AND deleted_at IS NULL",
     )
     .bind(claims.sub)
     .bind(vault_id)
-    .bind(claims.sub)
     .execute(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if result.rows_affected() == 0 {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    // Soft delete all subdocs in the vault
     sqlx::query(
         "UPDATE subdocs SET deleted_at = NOW(), deleted_by = $1 WHERE vault_id = $2 AND deleted_at IS NULL",
     )
@@ -149,10 +225,16 @@ async fn get_vault_documents_metadata(
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<DocumentMetadata>>, StatusCode> {
     let _vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
-         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
-            SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
-         ))",
+        r#"
+        SELECT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
+        FROM vaults v
+        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $2
+        WHERE v.id = $1 AND v.deleted_at IS NULL AND (
+            v.user_id = $2 OR
+            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL) OR
+            EXISTS (SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2)
+        )
+        "#,
     )
     .bind(vault_id)
     .bind(claims.sub)
@@ -253,12 +335,17 @@ async fn list_vault_members(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<VaultMemberWithProfileResponse>>, StatusCode> {
-    // Verify user has access to vault (owner or member)
     let _vault = sqlx::query_as::<_, Vault>(
-        "SELECT v.id, v.user_id, v.name, v.created_at, v.deleted_at, v.deleted_by FROM vaults v
-         WHERE v.id = $1 AND v.deleted_at IS NULL AND (v.user_id = $2 OR EXISTS (
-            SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
-         ))",
+        r#"
+        SELECT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
+        FROM vaults v
+        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $2
+        WHERE v.id = $1 AND v.deleted_at IS NULL AND (
+            v.user_id = $2 OR
+            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL) OR
+            EXISTS (SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2)
+        )
+        "#,
     )
     .bind(vault_id)
     .bind(claims.sub)
@@ -294,16 +381,35 @@ async fn add_vault_member(
     Path(vault_id): Path<Uuid>,
     Json(req): Json<AddVaultMemberRequest>,
 ) -> Result<Json<VaultMemberWithProfileResponse>, StatusCode> {
-    // Verify user is vault owner
-    let _vault = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    let vault = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(vault_id)
-    .bind(claims.sub)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
+
+    let can_add = if let Some(user_id) = vault.user_id {
+        user_id == claims.sub
+    } else if let Some(org_id) = vault.org_id {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        role == Some("admin".to_string())
+    } else {
+        false
+    };
+
+    if !can_add {
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     // Resolve user_id from username if provided
     let target_user_id = if let Some(username) = req.username {
@@ -353,16 +459,35 @@ async fn remove_vault_member(
     claims: Claims,
     Path((vault_id, member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, StatusCode> {
-    // Verify user is vault owner
-    let _vault = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
+    let vault = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(vault_id)
-    .bind(claims.sub)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
+
+    let can_remove = if let Some(user_id) = vault.user_id {
+        user_id == claims.sub
+    } else if let Some(org_id) = vault.org_id {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        role == Some("admin".to_string())
+    } else {
+        false
+    };
+
+    if !can_remove {
+        return Err(StatusCode::FORBIDDEN);
+    }
 
     let result = sqlx::query("DELETE FROM vault_members WHERE id = $1 AND vault_id = $2")
         .bind(member_id)
@@ -383,12 +508,40 @@ async fn restore_vault(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
-    // Restore the vault
     let vault = sqlx::query_as::<_, Vault>(
-        "UPDATE vaults SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND user_id = $2 AND deleted_at IS NOT NULL RETURNING id, user_id, name, created_at, deleted_at, deleted_by",
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NOT NULL",
     )
     .bind(vault_id)
-    .bind(claims.sub)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let can_restore = if let Some(user_id) = vault.user_id {
+        user_id == claims.sub
+    } else if let Some(org_id) = vault.org_id {
+        let role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(claims.sub)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        role == Some("admin".to_string())
+    } else {
+        false
+    };
+
+    if !can_restore {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let vault = sqlx::query_as::<_, Vault>(
+        "UPDATE vaults SET deleted_at = NULL, deleted_by = NULL WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by",
+    )
+    .bind(vault_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -419,7 +572,16 @@ async fn list_deleted_vaults(
     claims: Claims,
 ) -> Result<Json<Vec<DeletedVaultResponse>>, StatusCode> {
     let vaults = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, name, created_at, deleted_at, deleted_by FROM vaults WHERE user_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC",
+        r#"
+        SELECT DISTINCT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
+        FROM vaults v
+        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $1
+        WHERE v.deleted_at IS NOT NULL AND (
+            v.user_id = $1 OR
+            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL AND om.role = 'admin')
+        )
+        ORDER BY v.deleted_at DESC
+        "#,
     )
     .bind(claims.sub)
     .fetch_all(&state.pool)

@@ -58,6 +58,7 @@ async fn main() -> Result<()> {
         .nest("/api/auth", api::auth_routes())
         .nest("/api/users", api::user_routes())
         .nest("/api/vaults", api::vault_routes())
+        .nest("/api/organizations", api::organization_routes())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

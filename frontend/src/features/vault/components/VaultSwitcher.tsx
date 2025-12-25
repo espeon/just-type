@@ -1,12 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import { useVaultStore } from '../stores/vaultStore'
 import { useStorage } from '../storage/StorageContext'
 import { vaultsApi } from '@/api/vaults'
+import { organizationsApi, Organization } from '@/api/organizations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -34,10 +42,31 @@ export function VaultSwitcher() {
     const [isCreating, setIsCreating] = useState(false)
     const [newVaultName, setNewVaultName] = useState('')
     const [enableSync, setEnableSync] = useState(false)
+    const [vaultType, setVaultType] = useState<'user' | 'org'>('user')
+    const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
+    const [organizations, setOrganizations] = useState<Organization[]>([])
 
     const navi = useNavigate()
 
     const currentVault = vaults.find((v) => v.id === currentVaultId)
+
+    useEffect(() => {
+        if (enableSync && userId) {
+            loadOrganizations()
+        }
+    }, [enableSync, userId])
+
+    async function loadOrganizations() {
+        try {
+            const orgs = await organizationsApi.list()
+            setOrganizations(orgs)
+            if (orgs.length > 0) {
+                setSelectedOrgId(orgs[0].id)
+            }
+        } catch (error) {
+            console.error('failed to load organizations:', error)
+        }
+    }
 
     const handleSwitchVault = async (vaultId: string) => {
         setCurrentVault(vaultId)
@@ -61,7 +90,12 @@ export function VaultSwitcher() {
                 if (enableSync && userId) {
                     try {
                         const serverVault = await vaultsApi.create({
-                            name: newVaultName
+                            name: newVaultName,
+                            vault_type: vaultType,
+                            org_id:
+                                vaultType === 'org'
+                                    ? selectedOrgId || undefined
+                                    : undefined
                         })
                         vaultId = serverVault.id
                     } catch (error) {
@@ -178,21 +212,102 @@ export function VaultSwitcher() {
                             />
                         </div>
                         {userId && (
-                            <div className="flex items-center space-x-2">
-                                <Checkbox
-                                    id="enable-sync"
-                                    checked={enableSync}
-                                    onCheckedChange={(checked) =>
-                                        setEnableSync(checked === true)
-                                    }
-                                />
-                                <Label
-                                    htmlFor="enable-sync"
-                                    className="text-sm font-normal cursor-pointer"
-                                >
-                                    enable sync to server
-                                </Label>
-                            </div>
+                            <>
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="enable-sync"
+                                        checked={enableSync}
+                                        onCheckedChange={(checked) =>
+                                            setEnableSync(checked === true)
+                                        }
+                                    />
+                                    <Label
+                                        htmlFor="enable-sync"
+                                        className="text-sm font-normal cursor-pointer"
+                                    >
+                                        enable sync to server
+                                    </Label>
+                                </div>
+                                {enableSync && (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="vault-type">
+                                                vault type
+                                            </Label>
+                                            <Select
+                                                value={vaultType}
+                                                onValueChange={(value) =>
+                                                    setVaultType(
+                                                        value as 'user' | 'org'
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="user">
+                                                        personal vault
+                                                    </SelectItem>
+                                                    <SelectItem value="org">
+                                                        organization vault
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {vaultType === 'org' &&
+                                            organizations.length > 0 && (
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="organization">
+                                                        organization
+                                                    </Label>
+                                                    <Select
+                                                        value={
+                                                            selectedOrgId || ''
+                                                        }
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
+                                                            setSelectedOrgId(
+                                                                value
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {organizations.map(
+                                                                (org) => (
+                                                                    <SelectItem
+                                                                        key={
+                                                                            org.id
+                                                                        }
+                                                                        value={
+                                                                            org.id
+                                                                        }
+                                                                    >
+                                                                        {
+                                                                            org.name
+                                                                        }
+                                                                    </SelectItem>
+                                                                )
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            )}
+                                        {vaultType === 'org' &&
+                                            organizations.length === 0 && (
+                                                <p className="text-sm text-muted-foreground">
+                                                    no organizations available.
+                                                    create one in settings
+                                                    first.
+                                                </p>
+                                            )}
+                                    </>
+                                )}
+                            </>
                         )}
                         <Button
                             onClick={handleCreateVault}
