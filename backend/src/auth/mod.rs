@@ -1,7 +1,7 @@
 pub mod jwt;
 mod password;
 
-pub use jwt::{generate_token, validate_token};
+pub use jwt::{generate_refresh_token, generate_token, validate_refresh_token, validate_token};
 pub use password::{hash_password, verify_password};
 
 use crate::models::{AuthResponse, LoginRequest, RegisterRequest, User};
@@ -33,10 +33,15 @@ pub async fn register(
     .await
     .context("Failed to create user")?;
 
-    // Generate JWT token
+    // Generate JWT token and refresh token
     let token = generate_token(&user.id, jwt_secret)?;
+    let refresh_token = generate_refresh_token(&user.id, jwt_secret)?;
 
-    Ok(AuthResponse { token, user })
+    Ok(AuthResponse {
+        token,
+        refresh_token,
+        user,
+    })
 }
 
 fn validate_username(username: &str) -> Result<()> {
@@ -76,8 +81,13 @@ pub async fn login(pool: &PgPool, req: LoginRequest, jwt_secret: &str) -> Result
     verify_password(&req.password, &user.password_hash)
         .map_err(|_| anyhow::anyhow!("Invalid credentials"))?;
 
-    // Generate JWT token
+    // Generate JWT token and refresh token
     let token = generate_token(&user.id, jwt_secret)?;
+    let refresh_token = generate_refresh_token(&user.id, jwt_secret)?;
 
-    Ok(AuthResponse { token, user })
+    Ok(AuthResponse {
+        token,
+        refresh_token,
+        user,
+    })
 }

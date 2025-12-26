@@ -9,6 +9,7 @@ export interface User {
 
 export interface AuthResponse {
     token: string
+    refresh_token: string
     user: User
 }
 
@@ -28,6 +29,9 @@ export interface ServerVault {
     id: string
     name: string
     created_at: string
+    effective_role?: string
+    org_id?: string
+    vault_type?: string
 }
 
 export interface DeletedVault {

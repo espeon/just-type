@@ -3,6 +3,10 @@ ALTER TABLE vaults
     ADD COLUMN org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     ADD COLUMN vault_type TEXT NOT NULL DEFAULT 'user' CHECK (vault_type IN ('user', 'org', 'shared'));
 
+-- Make user_id nullable since org vaults don't have a user owner
+ALTER TABLE vaults
+    ALTER COLUMN user_id DROP NOT NULL;
+
 -- Ensure vault has either user_id OR org_id, not both
 ALTER TABLE vaults
     ADD CONSTRAINT vaults_owner_check

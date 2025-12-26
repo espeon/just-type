@@ -45,16 +45,35 @@ export function VaultSwitcher() {
     const [vaultType, setVaultType] = useState<'user' | 'org'>('user')
     const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
     const [organizations, setOrganizations] = useState<Organization[]>([])
+    const [serverVaults, setServerVaults] = useState<Map<string, any>>(
+        new Map()
+    )
+    const [currentOrgContext, setCurrentOrgContext] =
+        useState<string>('personal')
 
     const navi = useNavigate()
 
     const currentVault = vaults.find((v) => v.id === currentVaultId)
 
-    useEffect(() => {
-        if (enableSync && userId) {
-            loadOrganizations()
+    // Filter vaults based on current org context
+    const filteredVaults = vaults.filter((v) => {
+        const serverVault = serverVaults.get(v.id)
+
+        if (currentOrgContext === 'personal') {
+            // Show user vaults and local vaults
+            return !serverVault || serverVault.vault_type === 'user'
+        } else {
+            // Show vaults for selected org
+            return serverVault?.org_id === currentOrgContext
         }
-    }, [enableSync, userId])
+    })
+
+    useEffect(() => {
+        if (userId) {
+            loadOrganizations()
+            loadServerVaults()
+        }
+    }, [userId])
 
     async function loadOrganizations() {
         try {
@@ -65,6 +84,19 @@ export function VaultSwitcher() {
             }
         } catch (error) {
             console.error('failed to load organizations:', error)
+        }
+    }
+
+    async function loadServerVaults() {
+        try {
+            const vaultList = await vaultsApi.list()
+            const vaultMap = new Map()
+            vaultList.forEach((vault) => {
+                vaultMap.set(vault.id, vault)
+            })
+            setServerVaults(vaultMap)
+        } catch (error) {
+            console.error('failed to load server vaults:', error)
         }
     }
 
@@ -80,44 +112,70 @@ export function VaultSwitcher() {
 
         try {
             setIsCreating(true)
-            const path = await storage.chooseVaultLocation()
-            if (path) {
-                await storage.initializeVault(path)
 
-                let vaultId: string
+            // Org vaults don't need a local path - they're server-only
+            if (enableSync && vaultType === 'org' && userId) {
+                try {
+                    const serverVault = await vaultsApi.create({
+                        name: newVaultName,
+                        vault_type: vaultType,
+                        org_id: selectedOrgId || undefined
+                    })
 
-                // Create on server first if sync is enabled
-                if (enableSync && userId) {
-                    try {
-                        const serverVault = await vaultsApi.create({
-                            name: newVaultName,
-                            vault_type: vaultType,
-                            org_id:
-                                vaultType === 'org'
-                                    ? selectedOrgId || undefined
-                                    : undefined
-                        })
-                        vaultId = serverVault.id
-                    } catch (error) {
-                        console.error(
-                            'Failed to create vault on server:',
-                            error
-                        )
-                        throw error
-                    }
-                } else {
-                    // For local vaults, generate a local ID
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    vaultId = undefined as any
+                    // Auto-add with default cache path
+                    const cachePath = `~/.just-type/cache/${serverVault.id}`
+                    addVault(newVaultName, cachePath, true, serverVault.id)
+
+                    setNewVaultName('')
+                    setEnableSync(false)
+                    setVaultType('user')
+                    setIsDialogOpen(false)
+                    await loadVault()
+                } catch (error) {
+                    console.error('Failed to create org vault:', error)
+                    throw error
                 }
+            } else {
+                // User vaults or local vaults need a local path
+                const path = await storage.chooseVaultLocation()
+                if (path) {
+                    await storage.initializeVault(path)
 
-                // Add vault with server ID (or undefined for local, which will generate one)
-                addVault(newVaultName, path, enableSync, vaultId)
+                    let vaultId: string
 
-                setNewVaultName('')
-                setEnableSync(false)
-                setIsDialogOpen(false)
-                await loadVault()
+                    // Create on server first if sync is enabled
+                    if (enableSync && userId) {
+                        try {
+                            const serverVault = await vaultsApi.create({
+                                name: newVaultName,
+                                vault_type: vaultType,
+                                org_id:
+                                    vaultType === 'org'
+                                        ? selectedOrgId || undefined
+                                        : undefined
+                            })
+                            vaultId = serverVault.id
+                        } catch (error) {
+                            console.error(
+                                'Failed to create vault on server:',
+                                error
+                            )
+                            throw error
+                        }
+                    } else {
+                        // For local vaults, generate a local ID
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        vaultId = undefined as any
+                    }
+
+                    // Add vault with server ID (or undefined for local, which will generate one)
+                    addVault(newVaultName, path, enableSync, vaultId)
+
+                    setNewVaultName('')
+                    setEnableSync(false)
+                    setIsDialogOpen(false)
+                    await loadVault()
+                }
             }
         } catch (error) {
             console.error('Failed to create vault:', error)
@@ -128,6 +186,25 @@ export function VaultSwitcher() {
 
     return (
         <>
+            {/* Organization Context Selector */}
+            <Select
+                value={currentOrgContext}
+                onValueChange={(value) => setCurrentOrgContext(value)}
+            >
+                <SelectTrigger className="w-full mb-2">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="personal">personal</SelectItem>
+                    {organizations.map((org) => (
+                        <SelectItem key={org.id} value={org.id}>
+                            {org.name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+
+            {/* Vault Switcher */}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button
@@ -155,29 +232,39 @@ export function VaultSwitcher() {
                 <DropdownMenuContent align="start" className="w-60">
                     <DropdownMenuLabel>switch vault</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    {vaults.map((vault) => (
-                        <DropdownMenuItem
-                            key={vault.id}
-                            onClick={() => handleSwitchVault(vault.id)}
-                            className="flex items-center justify-between"
-                        >
-                            <div className="flex flex-col flex-1">
-                                <span className="font-medium">
-                                    {vault.name}{' '}
-                                    {vault.syncEnabled ? (
-                                        <LucideCloud className="inline-block ml-2 text-blue-500" />
-                                    ) : (
-                                        <span className="px-2 py-0.5 bg-muted rounded-sm text-xs ml-2">
-                                            local
-                                        </span>
-                                    )}
-                                </span>
-                                <span className="text-xs text-muted-foreground truncate max-w-50">
-                                    {vault.localPath}
-                                </span>
-                            </div>
-                        </DropdownMenuItem>
-                    ))}
+
+                    {filteredVaults.map((vault) => {
+                        const serverVault = serverVaults.get(vault.id)
+                        const isOrgVault = serverVault?.org_id
+
+                        return (
+                            <DropdownMenuItem
+                                key={vault.id}
+                                onClick={() => handleSwitchVault(vault.id)}
+                                className="flex items-center justify-between"
+                            >
+                                <div className="flex flex-col flex-1">
+                                    <span className="font-medium">
+                                        {vault.name}{' '}
+                                        {vault.syncEnabled ? (
+                                            <LucideCloud className="inline-block ml-2 text-blue-500" />
+                                        ) : (
+                                            <span className="px-2 py-0.5 bg-muted rounded-sm text-xs ml-2">
+                                                local
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground truncate max-w-50">
+                                        {isOrgVault
+                                            ? serverVault?.effective_role ||
+                                              'member'
+                                            : vault.localPath}
+                                    </span>
+                                </div>
+                            </DropdownMenuItem>
+                        )
+                    })}
+
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setIsDialogOpen(true)}>
                         <span className="font-medium">+ new vault</span>

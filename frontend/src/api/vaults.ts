@@ -59,5 +59,14 @@ export const vaultsApi = {
 
     restore: async (vaultId: string): Promise<ServerVault> => {
         return apiClient.post<ServerVault>(`/api/vaults/${vaultId}/restore`, {})
+    },
+
+    transferToOrg: async (
+        vaultId: string,
+        orgId: string
+    ): Promise<ServerVault> => {
+        return apiClient.post<ServerVault>(`/api/vaults/${vaultId}/transfer`, {
+            org_id: orgId
+        })
     }
 }

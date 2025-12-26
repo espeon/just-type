@@ -1,4 +1,5 @@
 use crate::api::auth::AppState;
+use crate::api::vaults::{VaultRole, get_user_vault_role};
 use crate::models::DocumentMetadata;
 use axum::{
     body::Bytes,
@@ -94,23 +95,15 @@ pub async fn ws_handler(
         StatusCode::BAD_REQUEST
     })?;
 
-    // Verify vault access: user must own the vault OR be a member
-    let vault_access = sqlx::query!(
-        "SELECT v.id FROM vaults v
-         WHERE v.id = $1 AND (v.user_id = $2 OR EXISTS (
-            SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2
-         ))",
-        vault_id,
-        user_id
-    )
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error checking vault access: {:?}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // Get user's role for this vault
+    let role = get_user_vault_role(&state.pool, vault_id, user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error checking vault role: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let has_vault_access = vault_access.is_some();
+    let has_vault_access = role != VaultRole::None;
 
     if !has_vault_access {
         tracing::warn!(
@@ -134,9 +127,11 @@ pub async fn ws_handler(
         query.get("doc").cloned()
     };
 
-    Ok(ws.on_upgrade(move |socket| {
-        handle_socket(socket, state, path_doc, vault_id, user_id, has_vault_access)
-    }))
+    Ok(
+        ws.on_upgrade(move |socket| {
+            handle_socket(socket, state, path_doc, vault_id, user_id, role)
+        }),
+    )
 }
 
 async fn handle_socket(
@@ -145,21 +140,21 @@ async fn handle_socket(
     doc: Option<String>,
     vault_id: Uuid,
     user_id: Uuid,
-    has_vault_access: bool,
+    role: VaultRole,
 ) {
     tracing::info!(
-        "WebSocket connection established, doc: {:?}, vault_id={}, user_id={}, has_vault_access={}",
+        "WebSocket connection established, doc: {:?}, vault_id={}, user_id={}, role={:?}",
         doc,
         vault_id,
         user_id,
-        has_vault_access
+        role
     );
 
     let (mut sender, mut receiver) = socket.split();
     tracing::info!("WebSocket split into sender/receiver");
 
     // If user doesn't have vault access, close connection immediately
-    if !has_vault_access {
+    if role == VaultRole::None {
         let _ = sender.send(Message::Close(None)).await;
         tracing::warn!(
             "Closed WebSocket connection for user {} - vault access denied",
@@ -203,7 +198,7 @@ async fn handle_socket(
                             tracing::warn!("Received Binary message with zero length");
                         }
 
-                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, vault_id, user_id).await {
+                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, vault_id, user_id, role).await {
                             Ok(_) => tracing::debug!("Message handled successfully"),
                             Err(e) => {
                                 tracing::error!("Error handling binary message: {:?}", e);
@@ -299,6 +294,7 @@ async fn handle_binary_message(
     doc: &Option<String>,
     vault_id: Uuid,
     user_id: Uuid,
+    role: VaultRole,
 ) -> anyhow::Result<()> {
     // Yjs y-protocols message format:
     // varUint(syncProtocolMessageType) • varUint(messageType) • varByteArray(payload)
@@ -379,7 +375,7 @@ async fn handle_binary_message(
             }
             2 => {
                 // Update: Client sends incremental update
-                handle_update(sender, state, payload, doc, vault_id, user_id).await?;
+                handle_update(sender, state, payload, doc, vault_id, user_id, role).await?;
             }
             _ => {
                 tracing::warn!("Unknown sync message type: {}", msg_type);
@@ -521,8 +517,19 @@ async fn handle_update(
     doc: &Option<String>,
     vault_id: Uuid,
     user_id: Uuid,
+    role: VaultRole,
 ) -> anyhow::Result<()> {
     tracing::debug!("handle_update called with payload {} bytes", payload.len());
+
+    // Block viewers from sending updates (read-only access)
+    if role == VaultRole::Viewer {
+        tracing::warn!(
+            "User {} attempted to edit document in vault {} as viewer - rejecting update",
+            user_id,
+            vault_id
+        );
+        return Ok(()); // Silently ignore the update
+    }
 
     // Payload is the update (already decoded as varByteArray by caller)
     let update_bytes = payload;

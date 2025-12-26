@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useConfigStore } from '../stores/configStore'
 import { useVaultStore } from '../stores/vaultStore'
 import { vaultsApi } from '@/api/vaults'
+import { organizationsApi, Organization } from '@/api/organizations'
 import { VaultSharingDialog } from './VaultSharingDialog'
 import { Button } from '@/components/ui/button'
-import { Trash2, Share2, Cloud, Lock } from 'lucide-react'
+import { Trash2, Share2, Cloud, Lock, ArrowRightToLine } from 'lucide-react'
 import {
     Dialog,
     DialogContent,
@@ -12,6 +13,13 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select'
 
 export function VaultManagement() {
     const {
@@ -27,6 +35,54 @@ export function VaultManagement() {
     const [isDeleting, setIsDeleting] = useState(false)
     const [isTogglingSync, setIsTogglingSync] = useState<string | null>(null)
     const [sharingVaultId, setSharingVaultId] = useState<string | null>(null)
+    const [transferVaultId, setTransferVaultId] = useState<string | null>(null)
+    const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
+    const [organizations, setOrganizations] = useState<Organization[]>([])
+    const [isTransferring, setIsTransferring] = useState(false)
+    const [serverVaults, setServerVaults] = useState<Map<string, any>>(
+        new Map()
+    )
+
+    useEffect(() => {
+        if (userId) {
+            loadOrganizations()
+            loadServerVaults()
+        }
+    }, [userId])
+
+    async function loadServerVaults() {
+        try {
+            const vaultList = await vaultsApi.list()
+            const vaultMap = new Map()
+            vaultList.forEach((vault) => {
+                vaultMap.set(vault.id, vault)
+            })
+            setServerVaults(vaultMap)
+        } catch (error) {
+            console.error('Failed to load server vaults:', error)
+        }
+    }
+
+    async function loadOrganizations() {
+        try {
+            const orgs = await organizationsApi.list()
+            // Filter to only orgs where user is admin
+            const adminOrgs = []
+            for (const org of orgs) {
+                const members = await organizationsApi.listMembers(org.id)
+                const userMember = members.find((m) => m.user_id === userId)
+                if (userMember?.role === 'admin') {
+                    adminOrgs.push(org)
+                }
+            }
+            setOrganizations(adminOrgs)
+            if (adminOrgs.length > 0) {
+                setSelectedOrgId(adminOrgs[0].id)
+            }
+        } catch (error) {
+            console.error('Failed to load organizations:', error)
+        }
+    }
 
     const handleToggleSync = async (vaultId: string) => {
         const vault = vaults.find((v) => v.id === vaultId)
@@ -82,6 +138,26 @@ export function VaultManagement() {
         }
     }
 
+    const handleTransferVault = async () => {
+        if (!transferVaultId || !selectedOrgId) return
+
+        setIsTransferring(true)
+        try {
+            await vaultsApi.transferToOrg(transferVaultId, selectedOrgId)
+
+            // Reload vault list to reflect the change
+            await useConfigStore.getState().syncServerVaults()
+
+            setTransferVaultId(null)
+            alert('Vault transferred to organization successfully')
+        } catch (error) {
+            console.error('Failed to transfer vault:', error)
+            alert('Failed to transfer vault to organization')
+        } finally {
+            setIsTransferring(false)
+        }
+    }
+
     const handleDeleteVault = async (vaultId: string) => {
         setIsDeleting(true)
         try {
@@ -126,91 +202,141 @@ export function VaultManagement() {
         )
     }
 
-    return (
-        <div>
-            <h2 className="text-xl font-semibold mb-4">vaults</h2>
-            <div className="space-y-3">
-                {vaults.map((vault) => (
-                    <div
-                        key={vault.id}
-                        className={`p-4 border rounded-lg ${
-                            currentVaultId === vault.id
-                                ? 'border bg-muted'
-                                : 'border-border'
-                        }`}
+    // Group vaults by organization
+    const personalVaults = vaults.filter((v) => {
+        const serverVault = serverVaults.get(v.id)
+        return !serverVault || serverVault.vault_type === 'user'
+    })
+
+    const orgVaultGroups = new Map<string, typeof vaults>()
+    vaults.forEach((v) => {
+        const serverVault = serverVaults.get(v.id)
+        if (serverVault?.org_id) {
+            if (!orgVaultGroups.has(serverVault.org_id)) {
+                orgVaultGroups.set(serverVault.org_id, [])
+            }
+            orgVaultGroups.get(serverVault.org_id)!.push(v)
+        }
+    })
+
+    const renderVault = (vault: (typeof vaults)[0]) => (
+        <div
+            key={vault.id}
+            className={`p-4 border rounded-lg ${
+                currentVaultId === vault.id
+                    ? 'border bg-muted'
+                    : 'border-border'
+            }`}
+        >
+            <div className="flex items-start justify-between">
+                <div className="flex-1">
+                    <h3 className="font-medium">{vault.name}</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                        {vault.syncEnabled ? (
+                            <span className="text-blue-600 dark:text-blue-400">
+                                synced
+                            </span>
+                        ) : (
+                            <span>local only</span>
+                        )}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                        {vault.localPath}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleSync(vault.id)}
+                        disabled={isTogglingSync === vault.id}
+                        className="h-8 px-2 text-xs"
+                        title={
+                            vault.syncEnabled ? 'disable sync' : 'enable sync'
+                        }
                     >
-                        <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                                <h3 className="font-medium">{vault.name}</h3>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {vault.syncEnabled ? (
-                                        <span className="text-blue-600 dark:text-blue-400">
-                                            synced
-                                        </span>
-                                    ) : (
-                                        <span>local only</span>
-                                    )}
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    {vault.localPath}
-                                </p>
-                            </div>
-                            <div className="flex gap-2">
+                        {vault.syncEnabled ? (
+                            <>
+                                <Cloud className="h-4 w-4 mr-1" />
+                                disable
+                            </>
+                        ) : (
+                            <>
+                                <Lock className="h-4 w-4 mr-1" />
+                                enable
+                            </>
+                        )}
+                    </Button>
+                    {vault.syncEnabled && (
+                        <>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setSharingVaultId(vault.id)}
+                                className="h-8 w-8 p-0"
+                                title="share vault"
+                            >
+                                <Share2 className="h-4 w-4" />
+                            </Button>
+                            {organizations.length > 0 && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => handleToggleSync(vault.id)}
-                                    disabled={isTogglingSync === vault.id}
-                                    className="h-8 px-2 text-xs"
-                                    title={
-                                        vault.syncEnabled
-                                            ? 'disable sync'
-                                            : 'enable sync'
-                                    }
+                                    onClick={() => setTransferVaultId(vault.id)}
+                                    className="h-8 w-8 p-0"
+                                    title="transfer to organization"
                                 >
-                                    {vault.syncEnabled ? (
-                                        <>
-                                            <Cloud className="h-4 w-4 mr-1" />
-                                            disable
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Lock className="h-4 w-4 mr-1" />
-                                            enable
-                                        </>
-                                    )}
+                                    <ArrowRightToLine className="h-4 w-4" />
                                 </Button>
-                                {vault.syncEnabled && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() =>
-                                            setSharingVaultId(vault.id)
-                                        }
-                                        className="h-8 w-8 p-0"
-                                        title="share vault"
-                                    >
-                                        <Share2 className="h-4 w-4" />
-                                    </Button>
-                                )}
-                                {currentVaultId !== vault.id && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() =>
-                                            setVaultToDelete(vault.id)
-                                        }
-                                        className="text-destructive hover:text-destructive h-8 w-8 p-0"
-                                        title="remove vault"
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                )}
-                            </div>
+                            )}
+                        </>
+                    )}
+                    {currentVaultId !== vault.id && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setVaultToDelete(vault.id)}
+                            className="text-destructive hover:text-destructive h-8 w-8 p-0"
+                            title="remove vault"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+
+    return (
+        <div>
+            <h2 className="text-xl font-semibold mb-4">vaults</h2>
+
+            {/* Personal vaults */}
+            {personalVaults.length > 0 && (
+                <div className="mb-6">
+                    <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                        personal
+                    </h3>
+                    <div className="space-y-3">
+                        {personalVaults.map(renderVault)}
+                    </div>
+                </div>
+            )}
+
+            {/* Organization vaults */}
+            {Array.from(orgVaultGroups.entries()).map(([orgId, orgVaults]) => {
+                const org = organizations.find((o) => o.id === orgId)
+                return (
+                    <div key={orgId} className="mb-6">
+                        <h3 className="text-sm font-medium text-muted-foreground mb-3">
+                            {org?.name || orgId}
+                        </h3>
+                        <div className="space-y-3">
+                            {orgVaults.map(renderVault)}
                         </div>
                     </div>
-                ))}
-            </div>
+                )
+            })}
 
             <Dialog
                 open={!!vaultToDelete}
@@ -253,6 +379,65 @@ export function VaultManagement() {
                     vaultId={sharingVaultId}
                 />
             )}
+
+            <Dialog
+                open={!!transferVaultId}
+                onOpenChange={(open) => !open && setTransferVaultId(null)}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            transfer vault to organization
+                        </DialogTitle>
+                        <DialogDescription>
+                            this will transfer ownership of the vault to an
+                            organization. all org members will have access based
+                            on their role.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">
+                                organization
+                            </label>
+                            <Select
+                                value={selectedOrgId || ''}
+                                onValueChange={(value) =>
+                                    setSelectedOrgId(value)
+                                }
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="select organization" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {organizations.map((org) => (
+                                        <SelectItem key={org.id} value={org.id}>
+                                            {org.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <Button
+                                variant="outline"
+                                onClick={() => setTransferVaultId(null)}
+                                disabled={isTransferring}
+                            >
+                                cancel
+                            </Button>
+                            <Button
+                                onClick={handleTransferVault}
+                                disabled={isTransferring || !selectedOrgId}
+                            >
+                                {isTransferring
+                                    ? 'transferring...'
+                                    : 'transfer'}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

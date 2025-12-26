@@ -109,6 +109,7 @@ pub struct VaultMemberWithProfile {
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub token: String,
+    pub refresh_token: String,
     pub user: User,
 }
 

@@ -8,5 +8,11 @@ export const authApi = {
 
     login: async (data: LoginRequest): Promise<AuthResponse> => {
         return apiClient.post<AuthResponse>('/api/auth/login', data)
+    },
+
+    refresh: async (refreshToken: string): Promise<AuthResponse> => {
+        return apiClient.post<AuthResponse>('/api/auth/refresh', {
+            refresh_token: refreshToken
+        })
     }
 }

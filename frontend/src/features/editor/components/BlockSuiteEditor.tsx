@@ -10,7 +10,7 @@ import { CollaborationDialog } from './CollaborationDialog'
 import { EmojiPicker } from '@/components/ui/emoji-picker'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { GripVertical, Plus, X } from 'lucide-react'
+import { GripVertical, Plus, X, Eye } from 'lucide-react'
 import * as Y from 'yjs'
 import { TiptapEditor } from './TiptapEditor'
 import BubbleMenuComponent from './BubbleMenu'
@@ -24,6 +24,7 @@ import { commands, SlashCommand } from '../extensions/SlashCommandExtension'
 import { useYjsDocument } from '../hooks/useYjsDocument'
 import { DragHandle } from '@tiptap/extension-drag-handle-react'
 import { Editor, JSONContent } from '@tiptap/core'
+import { vaultsApi } from '@/api/vaults'
 
 interface BlockSuiteEditorProps {
     document: Document
@@ -45,6 +46,7 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
     const [insertBefore, setInsertBefore] = useState(false)
     const [syncError, setSyncError] = useState<string | null>(null)
     const [syncKey, setSyncKey] = useState(0)
+    const [vaultRole, setVaultRole] = useState<string | null>(null)
     const dragHandleNodePos = useRef<number | null>(null)
 
     const { ydoc } = useYjsDocument({
@@ -52,10 +54,34 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
         initialState: document.state
     })
 
-    const { editor } = useTiptapEditor({ ydoc })
+    const isReadOnly = vaultRole === 'viewer'
+
+    const { editor } = useTiptapEditor({ ydoc, editable: !isReadOnly })
 
     const currentVault = useConfigStore((state) => state.getCurrentVault())
     const authToken = useConfigStore((state) => state.authToken)
+
+    // Fetch vault role to determine if user can edit
+    useEffect(() => {
+        async function fetchVaultRole() {
+            if (!currentVault?.id || !currentVault?.syncEnabled || !authToken) {
+                // Local vaults are always editable
+                setVaultRole('owner')
+                return
+            }
+
+            try {
+                const vault = await vaultsApi.get(currentVault.id)
+                setVaultRole(vault.effective_role || 'owner')
+            } catch (error) {
+                console.error('Failed to fetch vault role:', error)
+                // Default to viewer on error to be safe
+                setVaultRole('viewer')
+            }
+        }
+
+        fetchVaultRole()
+    }, [currentVault?.id, currentVault?.syncEnabled, authToken])
 
     const { connected: serverConnected, synced: serverSynced } = useServerSync({
         ydoc,
@@ -156,6 +182,17 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                 <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">
                     <p className="text-sm font-medium">Sync Error</p>
                     <p className="text-sm">{syncError}</p>
+                </div>
+            )}
+            {isReadOnly && (
+                <div className="bg-blue-50 border-b border-blue-200 px-4 py-3 text-blue-800">
+                    <div className="flex items-center gap-2">
+                        <Eye className="h-4 w-4" />
+                        <p className="text-sm font-medium">read-only mode</p>
+                        <span className="text-sm">
+                            you have viewer access to this vault
+                        </span>
+                    </div>
                 </div>
             )}
             <div className="flex-1 overflow-auto">

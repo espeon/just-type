@@ -16,14 +16,14 @@ pub fn organization_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(create_organization).get(list_organizations))
         .route(
-            "/:org_id",
+            "/{org_id}",
             get(get_organization)
                 .put(update_organization)
                 .delete(delete_organization),
         )
-        .route("/:org_id/members", get(list_members).post(add_member))
+        .route("/{org_id}/members", get(list_members).post(add_member))
         .route(
-            "/:org_id/members/:member_id",
+            "/{org_id}/members/{member_id}",
             put(update_member_role).delete(remove_member),
         )
 }
@@ -53,9 +53,10 @@ pub struct UpdateMemberRoleRequest {
 
 pub async fn create_organization(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Json(req): Json<CreateOrgRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let org = sqlx::query_as::<_, Organization>(
         r#"
         INSERT INTO organizations (name, slug)
@@ -65,7 +66,7 @@ pub async fn create_organization(
     )
     .bind(&req.name)
     .bind(&req.slug)
-    .fetch_one(&pool)
+    .fetch_one(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create organization: {}", e);
@@ -79,8 +80,8 @@ pub async fn create_organization(
         "#,
     )
     .bind(org.id)
-    .bind(claims.user_id)
-    .execute(&pool)
+    .bind(claims.sub)
+    .execute(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to add creator as admin: {}", e);
@@ -92,8 +93,9 @@ pub async fn create_organization(
 
 pub async fn list_organizations(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let orgs = sqlx::query_as::<_, Organization>(
         r#"
         SELECT o.id, o.name, o.slug, o.created_at, o.deleted_at, o.deleted_by
@@ -103,8 +105,8 @@ pub async fn list_organizations(
         ORDER BY o.created_at DESC
         "#,
     )
-    .bind(claims.user_id)
-    .fetch_all(&pool)
+    .bind(claims.sub)
+    .fetch_all(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to list organizations: {}", e);
@@ -116,15 +118,16 @@ pub async fn list_organizations(
 
 pub async fn get_organization(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let membership = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -139,7 +142,7 @@ pub async fn get_organization(
         "SELECT id, name, slug, created_at, deleted_at, deleted_by FROM organizations WHERE id = $1 AND deleted_at IS NULL",
     )
     .bind(org_id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to get organization: {}", e);
@@ -152,16 +155,17 @@ pub async fn get_organization(
 
 pub async fn update_organization(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(org_id): Path<Uuid>,
     Json(req): Json<UpdateOrgRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -177,12 +181,12 @@ pub async fn update_organization(
     let mut updates = Vec::new();
     let mut param_count = 1;
 
-    if let Some(name) = &req.name {
+    if req.name.is_some() {
         updates.push(format!("name = ${}", param_count));
         param_count += 1;
     }
 
-    if let Some(slug) = &req.slug {
+    if req.slug.is_some() {
         updates.push(format!("slug = ${}", param_count));
         param_count += 1;
     }
@@ -206,7 +210,7 @@ pub async fn update_organization(
 
     let org = q
         .bind(org_id)
-        .fetch_optional(&pool)
+        .fetch_optional(pool)
         .await
         .map_err(|e| {
             tracing::error!("Failed to update organization: {}", e);
@@ -219,15 +223,16 @@ pub async fn update_organization(
 
 pub async fn delete_organization(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -240,9 +245,9 @@ pub async fn delete_organization(
     }
 
     sqlx::query("UPDATE organizations SET deleted_at = NOW(), deleted_by = $1 WHERE id = $2")
-        .bind(claims.user_id)
+        .bind(claims.sub)
         .bind(org_id)
-        .execute(&pool)
+        .execute(pool)
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete organization: {}", e);
@@ -254,15 +259,16 @@ pub async fn delete_organization(
 
 pub async fn list_members(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(org_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let membership = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -285,7 +291,7 @@ pub async fn list_members(
         "#,
     )
     .bind(org_id)
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to list org members: {}", e);
@@ -297,16 +303,17 @@ pub async fn list_members(
 
 pub async fn add_member(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path(org_id): Path<Uuid>,
     Json(req): Json<AddMemberRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -332,8 +339,8 @@ pub async fn add_member(
     .bind(org_id)
     .bind(req.user_id)
     .bind(&req.role)
-    .bind(claims.user_id)
-    .fetch_one(&pool)
+    .bind(claims.sub)
+    .fetch_one(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to add org member: {}", e);
@@ -345,16 +352,17 @@ pub async fn add_member(
 
 pub async fn update_member_role(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path((org_id, member_id)): Path<(Uuid, Uuid)>,
     Json(req): Json<UpdateMemberRoleRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -381,7 +389,7 @@ pub async fn update_member_role(
     .bind(&req.role)
     .bind(member_id)
     .bind(org_id)
-    .fetch_optional(&pool)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to update member role: {}", e);
@@ -394,15 +402,16 @@ pub async fn update_member_role(
 
 pub async fn remove_member(
     claims: Claims,
-    State(pool): State<PgPool>,
+    State(state): State<AppState>,
     Path((org_id, member_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let pool = &state.pool;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
     )
     .bind(org_id)
-    .bind(claims.user_id)
-    .fetch_optional(&pool)
+    .bind(claims.sub)
+    .fetch_optional(pool)
     .await
     .map_err(|e| {
         tracing::error!("Failed to check org membership: {}", e);
@@ -417,7 +426,7 @@ pub async fn remove_member(
     sqlx::query("DELETE FROM organization_members WHERE id = $1 AND org_id = $2")
         .bind(member_id)
         .bind(org_id)
-        .execute(&pool)
+        .execute(pool)
         .await
         .map_err(|e| {
             tracing::error!("Failed to remove org member: {}", e);

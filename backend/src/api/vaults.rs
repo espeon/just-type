@@ -5,6 +5,7 @@ use axum::{
     routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
@@ -12,6 +13,94 @@ use crate::{
     auth::jwt::Claims,
     models::{DocumentMetadata, Vault, VaultMember, VaultMemberWithProfile},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultRole {
+    Owner,
+    Editor,
+    Viewer,
+    None,
+}
+
+pub async fn get_user_vault_role(
+    pool: &PgPool,
+    vault_id: Uuid,
+    user_id: Uuid,
+) -> Result<VaultRole, sqlx::Error> {
+    // Get vault info
+    let vault = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL"
+    )
+    .bind(vault_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let vault = match vault {
+        Some(v) => v,
+        None => return Ok(VaultRole::None),
+    };
+
+    // 1. Check if user owns the vault
+    if vault.user_id == Some(user_id) {
+        return Ok(VaultRole::Owner);
+    }
+
+    // 2. Check if user is org admin (for org vaults)
+    if let Some(org_id) = vault.org_id {
+        let org_role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if org_role == Some("admin".to_string()) {
+            return Ok(VaultRole::Owner);
+        }
+    }
+
+    // 3. Check vault_members table
+    let vault_member_role = sqlx::query_scalar::<_, String>(
+        "SELECT role FROM vault_members WHERE vault_id = $1 AND user_id = $2",
+    )
+    .bind(vault_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(role) = vault_member_role {
+        return Ok(match role.as_str() {
+            "owner" => VaultRole::Owner,
+            "editor" => VaultRole::Editor,
+            "viewer" => VaultRole::Viewer,
+            _ => VaultRole::None,
+        });
+    }
+
+    // 4. Check if user is org member (for org vaults)
+    if let Some(org_id) = vault.org_id {
+        let org_role = sqlx::query_scalar::<_, String>(
+            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+        )
+        .bind(org_id)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some(role) = org_role {
+            return Ok(match role.as_str() {
+                "admin" => VaultRole::Owner, // already handled above, but just in case
+                "member" => VaultRole::Editor,
+                "guest" => VaultRole::Viewer,
+                _ => VaultRole::None,
+            });
+        }
+    }
+
+    // 5. No access
+    Ok(VaultRole::None)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct CreateVaultRequest {
@@ -25,6 +114,12 @@ pub struct VaultResponse {
     pub id: Uuid,
     pub name: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vault_type: Option<String>,
 }
 
 impl From<Vault> for VaultResponse {
@@ -33,7 +128,22 @@ impl From<Vault> for VaultResponse {
             id: vault.id,
             name: vault.name,
             created_at: vault.created_at,
+            effective_role: None,
+            org_id: vault.org_id,
+            vault_type: Some(vault.vault_type),
         }
+    }
+}
+
+impl VaultResponse {
+    fn with_role(mut self, role: VaultRole) -> Self {
+        self.effective_role = Some(match role {
+            VaultRole::Owner => "owner".to_string(),
+            VaultRole::Editor => "editor".to_string(),
+            VaultRole::Viewer => "viewer".to_string(),
+            VaultRole::None => "none".to_string(),
+        });
+        self
     }
 }
 
@@ -43,6 +153,7 @@ pub fn vault_routes() -> Router<AppState> {
         .route("/deleted", get(list_deleted_vaults))
         .route("/{vault_id}", get(get_vault).delete(delete_vault))
         .route("/{vault_id}/restore", post(restore_vault))
+        .route("/{vault_id}/transfer", post(transfer_vault_to_org))
         .route(
             "/{vault_id}/documents/metadata",
             get(get_vault_documents_metadata),
@@ -79,7 +190,16 @@ async fn list_vaults(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(vaults.into_iter().map(VaultResponse::from).collect()))
+    // Add effective_role to each vault
+    let mut responses = Vec::new();
+    for vault in vaults {
+        let role = get_user_vault_role(&state.pool, vault.id, claims.sub)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        responses.push(VaultResponse::from(vault).with_role(role));
+    }
+
+    Ok(Json(responses))
 }
 
 async fn create_vault(
@@ -119,7 +239,8 @@ async fn create_vault(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        Ok(Json(VaultResponse::from(vault)))
+        // Org admins who create org vaults get owner role
+        Ok(Json(VaultResponse::from(vault).with_role(VaultRole::Owner)))
     } else {
         let vault = sqlx::query_as::<_, Vault>(
             "INSERT INTO vaults (id, user_id, vault_type, name) VALUES ($1, $2, $3, $4) RETURNING id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by",
@@ -132,7 +253,8 @@ async fn create_vault(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        Ok(Json(VaultResponse::from(vault)))
+        // User-owned vaults give owner role
+        Ok(Json(VaultResponse::from(vault).with_role(VaultRole::Owner)))
     }
 }
 
@@ -141,26 +263,24 @@ async fn get_vault(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<VaultResponse>, StatusCode> {
+    let role = get_user_vault_role(&state.pool, vault_id, claims.sub)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if role == VaultRole::None {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     let vault = sqlx::query_as::<_, Vault>(
-        r#"
-        SELECT v.id, v.user_id, v.org_id, v.vault_type, v.name, v.created_at, v.deleted_at, v.deleted_by
-        FROM vaults v
-        LEFT JOIN organization_members om ON v.org_id = om.org_id AND om.user_id = $2
-        WHERE v.id = $1 AND v.deleted_at IS NULL AND (
-            v.user_id = $2 OR
-            (v.org_id IS NOT NULL AND om.user_id IS NOT NULL) OR
-            EXISTS (SELECT 1 FROM vault_members vm WHERE vm.vault_id = v.id AND vm.user_id = $2)
-        )
-        "#,
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL"
     )
     .bind(vault_id)
-    .bind(claims.sub)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    Ok(Json(VaultResponse::from(vault)))
+    Ok(Json(VaultResponse::from(vault).with_role(role)))
 }
 
 async fn delete_vault(
@@ -168,33 +288,11 @@ async fn delete_vault(
     claims: Claims,
     Path(vault_id): Path<Uuid>,
 ) -> Result<StatusCode, StatusCode> {
-    let vault = sqlx::query_as::<_, Vault>(
-        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL",
-    )
-    .bind(vault_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    let can_delete = if let Some(user_id) = vault.user_id {
-        user_id == claims.sub
-    } else if let Some(org_id) = vault.org_id {
-        let role = sqlx::query_scalar::<_, String>(
-            "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
-        )
-        .bind(org_id)
-        .bind(claims.sub)
-        .fetch_optional(&state.pool)
+    let role = get_user_vault_role(&state.pool, vault_id, claims.sub)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        role == Some("admin".to_string())
-    } else {
-        false
-    };
-
-    if !can_delete {
+    if role != VaultRole::Owner {
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -217,6 +315,99 @@ async fn delete_vault(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct TransferVaultRequest {
+    org_id: Uuid,
+}
+
+async fn transfer_vault_to_org(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(vault_id): Path<Uuid>,
+    Json(req): Json<TransferVaultRequest>,
+) -> Result<Json<VaultResponse>, StatusCode> {
+    tracing::info!("Transfer vault {} to org {}", vault_id, req.org_id);
+
+    // Check if user owns the vault
+    let role = get_user_vault_role(&state.pool, vault_id, claims.sub)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user vault role: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    if role != VaultRole::Owner {
+        tracing::warn!("User does not own vault, role: {:?}", role);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Verify vault is currently a user vault
+    let vault = sqlx::query_as::<_, Vault>(
+        "SELECT id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by FROM vaults WHERE id = $1 AND deleted_at IS NULL"
+    )
+    .bind(vault_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to fetch vault: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    if vault.vault_type != "user" || vault.org_id.is_some() {
+        tracing::warn!(
+            "Vault is not a user vault: type={}, org_id={:?}",
+            vault.vault_type,
+            vault.org_id
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Check if user is admin of target org
+    let org_role = sqlx::query_scalar::<_, String>(
+        "SELECT role FROM organization_members WHERE org_id = $1 AND user_id = $2",
+    )
+    .bind(req.org_id)
+    .bind(claims.sub)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to fetch org role: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .ok_or_else(|| {
+        tracing::warn!("User is not a member of org {}", req.org_id);
+        StatusCode::FORBIDDEN
+    })?;
+
+    if org_role != "admin" {
+        tracing::warn!("User is not an admin of org, role: {}", org_role);
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Transfer vault to org
+    let updated_vault = sqlx::query_as::<_, Vault>(
+        "UPDATE vaults SET user_id = NULL, org_id = $1, vault_type = 'org' WHERE id = $2 RETURNING id, user_id, org_id, vault_type, name, created_at, deleted_at, deleted_by"
+    )
+    .bind(req.org_id)
+    .bind(vault_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to update vault: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    tracing::info!(
+        "Successfully transferred vault {} to org {}",
+        vault_id,
+        req.org_id
+    );
+    Ok(Json(
+        VaultResponse::from(updated_vault).with_role(VaultRole::Owner),
+    ))
 }
 
 async fn get_vault_documents_metadata(

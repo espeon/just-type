@@ -9,10 +9,19 @@ import * as Y from 'yjs'
 
 interface UseTiptapEditorProps {
     ydoc: Y.Doc
+    editable?: boolean
 }
 
-export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
-    console.log('useTiptapEditor: creating editor with ydoc', ydoc)
+export function useTiptapEditor({
+    ydoc,
+    editable = true
+}: UseTiptapEditorProps) {
+    console.log(
+        'useTiptapEditor: creating editor with ydoc',
+        ydoc,
+        'editable:',
+        editable
+    )
 
     const editor = useEditor({
         extensions: [
@@ -25,13 +34,14 @@ export function useTiptapEditor({ ydoc }: UseTiptapEditorProps) {
                     if (node.type.name === 'heading') {
                         return 'heading'
                     }
-                    return "type '/' for commands"
+                    return editable ? "type '/' for commands" : 'read-only'
                 }
             }),
             KeyboardShortcutsExtension,
             SlashCommandExtension,
             DocumentMentionExtension
         ],
+        editable,
         editorProps: {
             attributes: {
                 class: 'prose prose-shadcn prose-sm sm:prose-base lg:prose-lg max-w-none focus:outline-none dark:prose-invert mx-auto p-8',

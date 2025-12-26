@@ -33,6 +33,29 @@ class ApiClient {
         })
 
         if (!response.ok) {
+            // Handle expired/invalid tokens
+            if (response.status === 401) {
+                const store = useConfigStore.getState()
+                if (store.authToken && store.refreshToken) {
+                    // Try to refresh the token
+                    try {
+                        console.log('Token expired, attempting refresh')
+                        await store.refreshAccessToken()
+                        // Retry the original request with new token
+                        return this.request<T>(endpoint, options)
+                    } catch (refreshError) {
+                        console.warn(
+                            'Token refresh failed, clearing auth',
+                            refreshError
+                        )
+                        store.clearAuth()
+                    }
+                } else if (store.authToken) {
+                    console.warn('Token expired or invalid, clearing auth')
+                    store.clearAuth()
+                }
+            }
+
             const error: ApiError = {
                 message: await response.text(),
                 status: response.status

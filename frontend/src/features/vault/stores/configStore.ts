@@ -3,8 +3,10 @@ import { persist } from 'zustand/middleware'
 import { AppConfig, VaultConfig, DEFAULT_CONFIG } from '../types/config'
 import { v4 as uuidv4 } from 'uuid'
 import { authApi } from '@/api/auth'
+import { vaultsApi } from '@/api/vaults'
 
 interface ConfigState extends AppConfig {
+    refreshToken: string | null
     addVault: (
         name: string,
         localPath: string,
@@ -14,8 +16,9 @@ interface ConfigState extends AppConfig {
     removeVault: (vaultId: string) => void
     updateVault: (vaultId: string, updates: Partial<VaultConfig>) => void
     setCurrentVault: (vaultId: string) => void
-    setAuth: (userId: string, token: string) => void
+    setAuth: (userId: string, token: string, refreshToken: string) => void
     clearAuth: () => void
+    syncServerVaults: () => Promise<void>
     login: (email: string, password: string) => Promise<void>
     register: (
         email: string,
@@ -23,6 +26,7 @@ interface ConfigState extends AppConfig {
         username?: string,
         displayName?: string
     ) => Promise<void>
+    refreshAccessToken: () => Promise<void>
     getCurrentVault: () => VaultConfig | null
 }
 
@@ -30,6 +34,7 @@ export const useConfigStore = create<ConfigState>()(
     persist(
         (set, get) => ({
             ...DEFAULT_CONFIG,
+            refreshToken: null,
 
             addVault: (
                 name: string,
@@ -78,18 +83,70 @@ export const useConfigStore = create<ConfigState>()(
                 get().updateVault(vaultId, { lastOpened: Date.now() })
             },
 
-            setAuth: (userId: string, token: string) => {
-                set({ userId, authToken: token })
+            setAuth: (userId: string, token: string, refreshToken: string) => {
+                set({ userId, authToken: token, refreshToken })
             },
 
             clearAuth: () => {
-                set({ userId: null, authToken: null })
+                set({ userId: null, authToken: null, refreshToken: null })
                 // Don't disable sync - let vaults remember their sync state for next login
+            },
+
+            syncServerVaults: async () => {
+                try {
+                    const serverVaults = await vaultsApi.list()
+                    const { vaults } = get()
+
+                    console.log(
+                        '[syncServerVaults] Server vaults:',
+                        serverVaults.map((v) => ({ id: v.id, name: v.name }))
+                    )
+                    console.log(
+                        '[syncServerVaults] Local vaults:',
+                        vaults.map((v) => ({
+                            id: v.id,
+                            name: v.name,
+                            path: v.localPath
+                        }))
+                    )
+
+                    // Add any server vaults that aren't in local config
+                    for (const serverVault of serverVaults) {
+                        const existingVault = vaults.find(
+                            (v) => v.id === serverVault.id
+                        )
+                        if (!existingVault) {
+                            console.log(
+                                `[syncServerVaults] Adding missing vault: ${serverVault.name} (${serverVault.id})`
+                            )
+                            // Auto-add server vault with default cache path
+                            const cachePath = `~/.just-type/cache/${serverVault.id}`
+                            get().addVault(
+                                serverVault.name,
+                                cachePath,
+                                true, // sync enabled
+                                serverVault.id
+                            )
+                        } else {
+                            console.log(
+                                `[syncServerVaults] Vault already exists: ${serverVault.name} (${serverVault.id})`
+                            )
+                        }
+                    }
+                } catch (error) {
+                    console.error('Failed to sync server vaults:', error)
+                }
             },
 
             login: async (email: string, password: string) => {
                 const response = await authApi.login({ email, password })
-                get().setAuth(response.user.id, response.token)
+                get().setAuth(
+                    response.user.id,
+                    response.token,
+                    response.refresh_token
+                )
+                // Sync server vaults after login
+                await get().syncServerVaults()
             },
 
             register: async (
@@ -104,7 +161,27 @@ export const useConfigStore = create<ConfigState>()(
                     username,
                     display_name: displayName
                 })
-                get().setAuth(response.user.id, response.token)
+                get().setAuth(
+                    response.user.id,
+                    response.token,
+                    response.refresh_token
+                )
+                // Sync server vaults after registration
+                await get().syncServerVaults()
+            },
+
+            refreshAccessToken: async () => {
+                const { refreshToken } = get()
+                if (!refreshToken) {
+                    throw new Error('No refresh token available')
+                }
+
+                const response = await authApi.refresh(refreshToken)
+                get().setAuth(
+                    response.user.id,
+                    response.token,
+                    response.refresh_token
+                )
             },
 
             getCurrentVault: () => {
