@@ -20,6 +20,8 @@ import {
     SelectTrigger,
     SelectValue
 } from '@/components/ui/select'
+import { syncImagesToServer } from '@/lib/storage/image-sync'
+import * as Y from 'yjs'
 
 export function VaultManagement() {
     const {
@@ -107,6 +109,65 @@ export function VaultManagement() {
 
                     // Verify the vault was created successfully on the server
                     await vaultsApi.get(serverVault.id)
+
+                    // Sync all local images to server before enabling sync
+                    console.log('Syncing images to server...')
+                    const { structure, storage } = useVaultStore.getState()
+                    if (structure && storage && vault.localPath) {
+                        let totalImagesSynced = 0
+
+                        // Iterate through all documents in the vault
+                        for (const docMeta of structure.documents) {
+                            try {
+                                // Load the document from storage
+                                const doc = await storage.readDocument(
+                                    vault.localPath,
+                                    docMeta.id
+                                )
+
+                                // Parse the Yjs state
+                                const ydoc = new Y.Doc()
+                                if (doc.state) {
+                                    const update = new Uint8Array(
+                                        atob(doc.state)
+                                            .split('')
+                                            .map((c) => c.charCodeAt(0))
+                                    )
+                                    Y.applyUpdate(ydoc, update)
+                                }
+
+                                const imagesSynced =
+                                    await syncImagesToServer(ydoc)
+                                totalImagesSynced += imagesSynced
+
+                                // Save updated document state if images were synced
+                                if (imagesSynced > 0) {
+                                    const updatedState = btoa(
+                                        String.fromCharCode(
+                                            ...Y.encodeStateAsUpdate(ydoc)
+                                        )
+                                    )
+                                    await storage.writeDocument(
+                                        vault.localPath,
+                                        docMeta.id,
+                                        doc.metadata,
+                                        updatedState
+                                    )
+                                }
+                            } catch (error) {
+                                console.error(
+                                    `Failed to sync images in document ${docMeta.id}:`,
+                                    error
+                                )
+                            }
+                        }
+
+                        if (totalImagesSynced > 0) {
+                            console.log(
+                                `Synced ${totalImagesSynced} images to server`
+                            )
+                        }
+                    }
 
                     // Create new vault with server ID
                     const newVault = {

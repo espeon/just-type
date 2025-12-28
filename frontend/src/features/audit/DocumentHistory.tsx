@@ -12,6 +12,8 @@ import {
 import { generateHTML } from '@tiptap/html'
 import StarterKit from '@tiptap/starter-kit'
 import { ImageUploadExtension } from '../editor/extensions/ImageUploadExtension'
+// @ts-ignore - no types available
+import HtmlDiff from 'htmldiff-js'
 
 interface DocumentHistoryProps {
     docGuid: string
@@ -380,34 +382,48 @@ function HtmlDiffView({ before, after }: { before: string; after: string }) {
         }
     }
 
-    // Just convert both to HTML and show side-by-side
     const beforeHtml = xmlToHtml(before)
     const afterHtml = xmlToHtml(after)
 
+    // Mark images as atomic units for diffing by wrapping them
+    const wrapImages = (html: string) => {
+        return html.replace(
+            /<img([^>]*)>/g,
+            '<span class="atomic-image"><img$1></span>'
+        )
+    }
+
+    const wrappedBefore = wrapImages(beforeHtml)
+    const wrappedAfter = wrapImages(afterHtml)
+
+    // Use htmldiff-js to generate a combined diff view with inline highlighting
+    let diffHtml = HtmlDiff.execute(wrappedBefore, wrappedAfter)
+
+    // Unwrap images and style the wrappers
+    diffHtml = diffHtml.replace(
+        /<ins[^>]*><span class="atomic-image">(.*?)<\/span><\/ins>/g,
+        '<ins class="block">$1</ins>'
+    )
+    diffHtml = diffHtml.replace(
+        /<del[^>]*><span class="atomic-image">(.*?)<\/span><\/del>/g,
+        '<del class="block">$1</del>'
+    )
+    diffHtml = diffHtml.replace(
+        /<span class="atomic-image">(.*?)<\/span>/g,
+        '$1'
+    )
+
     return (
-        <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-                <div className="text-sm font-medium text-muted-foreground">
-                    before
-                </div>
-                <div
-                    className="prose prose-sm prose-shadcn max-w-none rounded border p-4 bg-background"
-                    dangerouslySetInnerHTML={{
-                        __html: beforeHtml
-                    }}
-                />
+        <div className="space-y-2">
+            <div className="text-sm font-medium text-muted-foreground">
+                changes
             </div>
-            <div className="space-y-2">
-                <div className="text-sm font-medium text-muted-foreground">
-                    after
-                </div>
-                <div
-                    className="prose prose-sm prose-shadcn max-w-none rounded border p-4 bg-background"
-                    dangerouslySetInnerHTML={{
-                        __html: afterHtml
-                    }}
-                />
-            </div>
+            <div
+                className="prose prose-sm prose-shadcn max-w-none rounded border p-4 bg-background [&_ins]:bg-green-100 [&_ins]:dark:bg-green-900/30 [&_ins]:text-green-700 [&_ins]:dark:text-green-300 [&_ins]:no-underline [&_del]:bg-red-100 [&_del]:dark:bg-red-900/30 [&_del]:text-red-700 [&_del]:dark:text-red-300 [&_del]:line-through [&_ins.block]:block [&_ins.block]:p-2 [&_ins.block]:border-2 [&_ins.block]:border-green-500 [&_ins.block]:dark:border-green-400 [&_ins.block]:rounded [&_del.block]:block [&_del.block]:p-2 [&_del.block]:border-2 [&_del.block]:border-red-500 [&_del.block]:dark:border-red-400 [&_del.block]:rounded [&_del.block]:opacity-50 [&_ins_img]:opacity-90 [&_ins_img]:bg-green-500 [&_ins_img]:dark:bg-green-400 [&_del_img]:outline-2 [&_del_img]:bg-red-500 [&_del_img]:dark:bg-red-400 [&_del_img]:opacity-50"
+                dangerouslySetInnerHTML={{
+                    __html: diffHtml
+                }}
+            />
         </div>
     )
 }
