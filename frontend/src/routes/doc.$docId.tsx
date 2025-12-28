@@ -5,8 +5,6 @@ import { BlockSuiteEditor } from '@/features/editor/components/BlockSuiteEditor'
 import { DocumentHistory } from '@/features/audit/DocumentHistory'
 import { useEffect, useState } from 'react'
 import { Loader } from '@/components/ui/loader'
-import { Button } from '@/components/ui/button'
-import { History } from 'lucide-react'
 
 function DocumentPage() {
     const { docId } = Route.useParams()
@@ -62,20 +60,12 @@ function DocumentPage() {
     return (
         <div className="relative flex h-full">
             <div className="flex-1">
-                <BlockSuiteEditor document={currentDocument} />
+                <BlockSuiteEditor
+                    document={currentDocument}
+                    onHistoryToggle={() => setShowHistory(!showHistory)}
+                    showHistory={showHistory}
+                />
             </div>
-
-            {!showHistory && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowHistory(true)}
-                    className="absolute right-4 top-4"
-                >
-                    <History className="h-4 w-4" />
-                    <span className="ml-2">history</span>
-                </Button>
-            )}
 
             {showHistory && (
                 <div className="w-80">

@@ -578,8 +578,8 @@ async fn handle_update(
     // Load document from database
     let (doc_obj, _metadata) = load_or_create_document(state, &guid, vault_id).await?;
 
-    // Extract document text BEFORE applying update
-    let content_before = extract_text_sample(&doc_obj, 500);
+    // Extract full document content BEFORE applying update
+    let content_before = extract_text_sample(&doc_obj, usize::MAX);
 
     // Apply update to document
     let update = Update::decode_v1(update_bytes)?;
@@ -588,8 +588,8 @@ async fn handle_update(
         txn.apply_update(update)?;
     }
 
-    // Extract document text AFTER applying update
-    let content_after = extract_text_sample(&doc_obj, 500);
+    // Extract full document content AFTER applying update
+    let content_after = extract_text_sample(&doc_obj, usize::MAX);
 
     // Log this edit to audit log with before/after content
     log_document_edit(
@@ -767,8 +767,9 @@ fn extract_edit_metadata(yjs_update: &[u8], doc: &Doc) -> EditMetadata {
 fn extract_text_sample(doc: &Doc, max_chars: usize) -> Option<String> {
     let txn = doc.transact();
 
-    // ProseMirror content is typically stored in a XmlFragment named "prosemirror"
-    if let Some(xml_fragment) = txn.get_xml_fragment("prosemirror") {
+    // Tiptap's Collaboration extension uses "default" as the field name by default
+    if let Some(xml_fragment) = txn.get_xml_fragment("default") {
+        // Return raw XML for proper rendering on frontend
         let xml_text = xml_fragment.get_string(&txn);
         if !xml_text.is_empty() {
             let sample = xml_text.chars().take(max_chars).collect::<String>();

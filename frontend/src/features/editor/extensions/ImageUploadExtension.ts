@@ -1,5 +1,6 @@
 import Image from '@tiptap/extension-image'
 import { uploadsApi } from '@/api/uploads'
+import { Editor } from '@tiptap/core'
 
 export const ImageUploadExtension = Image.extend({
     addAttributes() {
@@ -17,7 +18,7 @@ export const ImageUploadExtension = Image.extend({
 })
 
 // Helper function to handle image upload
-export async function uploadImage(file: File, editor: any) {
+export async function uploadImage(file: File, editor: Editor) {
     try {
         // Create a placeholder
         const placeholderUrl = URL.createObjectURL(file)
@@ -32,8 +33,8 @@ export async function uploadImage(file: File, editor: any) {
             .chain()
             .focus()
             .setImage({
-                src: imageUrl,
-                uploadId: upload.id
+                src: imageUrl
+                //uploadId: upload.id
             })
             .run()
 

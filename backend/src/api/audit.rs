@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::api::auth::AppState;
 use crate::api::vaults::get_user_vault_role;
 use crate::auth::jwt::Claims;
-use crate::models::{DocumentEdit, DocumentEditWithUser, DocumentSnapshot};
+use crate::models::{DocumentEditWithUser, DocumentSnapshot};
 
 pub fn audit_routes() -> Router<AppState> {
     Router::new()

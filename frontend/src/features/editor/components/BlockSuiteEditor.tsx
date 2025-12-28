@@ -28,9 +28,15 @@ import { vaultsApi } from '@/api/vaults'
 
 interface BlockSuiteEditorProps {
     document: Document
+    onHistoryToggle?: () => void
+    showHistory?: boolean
 }
 
-export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
+export function BlockSuiteEditor({
+    document,
+    onHistoryToggle,
+    showHistory
+}: BlockSuiteEditorProps) {
     const { saveDocument, updateMetadata } = useVaultStore()
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const [collaborationEnabled, setCollaborationEnabled] = useState(false)
@@ -177,6 +183,8 @@ export function BlockSuiteEditor({ document }: BlockSuiteEditorProps) {
                 serverConnected={serverConnected}
                 serverSynced={serverSynced}
                 onServerSyncRetry={handleServerSyncRetry}
+                onHistoryToggle={onHistoryToggle}
+                showHistory={showHistory}
             />
             {syncError && (
                 <div className="bg-red-50 border-b border-red-200 px-4 py-3 text-red-800">

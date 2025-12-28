@@ -4,6 +4,7 @@ import {
     CloudOff,
     Ellipsis,
     FileText,
+    History,
     Users,
     Wifi,
     WifiOff
@@ -44,6 +45,8 @@ interface EditorBarProps {
     serverConnected?: boolean
     serverSynced?: boolean
     onServerSyncRetry?: () => void
+    onHistoryToggle?: () => void
+    showHistory?: boolean
 }
 
 export function EditorBar({
@@ -54,10 +57,12 @@ export function EditorBar({
     serverSyncEnabled,
     serverConnected,
     serverSynced,
-    onServerSyncRetry
+    onServerSyncRetry,
+    onHistoryToggle,
+    showHistory
 }: EditorBarProps) {
     return (
-        <div className="flex items-center justify-between gap-2 px-4 py-1.5 border-b sticky top-0 left-0 z-10 pl-10 bg-background">
+        <div className="flex items-center h-14 justify-between gap-2 px-4 py-1.5 border-b sticky top-0 left-0 z-10 pl-10 bg-background">
             <div className="flex items-center text-sm font-medium overflow-hidden">
                 <ChevronRight className="inline-block mr-2 h-6 text-muted-foreground" />
                 {editorPath.length > 2 ? (
@@ -122,6 +127,18 @@ export function EditorBar({
                                 : 'Syncing...'
                             : 'Offline'}
                     </span>
+                </Button>
+            )}
+
+            {onHistoryToggle && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onHistoryToggle}
+                    className="gap-2"
+                >
+                    <History className="h-4 w-4" />
+                    {showHistory ? 'Hide' : 'History'}
                 </Button>
             )}
         </div>
