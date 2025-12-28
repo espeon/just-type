@@ -306,8 +306,6 @@ function DiffView({
 }
 
 function HtmlDiffView({ before, after }: { before: string; after: string }) {
-    console.log('HtmlDiffView received:', { before, after })
-
     // Convert Yjs XML to proper HTML using Tiptap
     const xmlToHtml = (xml: string) => {
         try {
