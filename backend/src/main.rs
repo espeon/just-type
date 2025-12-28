@@ -4,6 +4,7 @@ mod cleanup;
 mod config;
 mod db;
 mod models;
+mod storage;
 mod sync;
 
 use anyhow::Result;
@@ -44,11 +45,18 @@ async fn main() -> Result<()> {
     // Initialize sync manager
     let sync_manager = std::sync::Arc::new(sync::SyncManager::new());
 
+    // Initialize storage
+    let storage = std::sync::Arc::new(storage::local::LocalStorage::new(
+        "./uploads",
+        10 * 1024 * 1024,
+    )) as std::sync::Arc<dyn storage::BlobStorage>;
+
     // Build app state
     let state = AppState {
         pool,
         config: config.clone(),
         sync_manager,
+        storage,
     };
 
     // Build application router
@@ -59,6 +67,8 @@ async fn main() -> Result<()> {
         .nest("/api/users", api::user_routes())
         .nest("/api/vaults", api::vault_routes())
         .nest("/api/organizations", api::organization_routes())
+        .nest("/api/audit", api::audit_routes())
+        .nest("/api/uploads", api::upload_routes())
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

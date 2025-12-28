@@ -15,6 +15,50 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DocumentEdit {
+    pub id: Uuid,
+    pub subdoc_guid: String,
+    pub user_id: Uuid,
+    pub session_id: Uuid,
+    pub yjs_update: Vec<u8>,
+    pub edit_type: Option<String>,
+    pub block_type: Option<String>,
+    pub block_position: Option<i32>,
+    pub content_before: Option<String>,
+    pub content_after: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DocumentEditWithUser {
+    pub id: Uuid,
+    pub subdoc_guid: String,
+    pub user_id: Uuid,
+    pub session_id: Uuid,
+    pub yjs_update: Vec<u8>,
+    pub edit_type: Option<String>,
+    pub block_type: Option<String>,
+    pub block_position: Option<i32>,
+    pub content_before: Option<String>,
+    pub content_after: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub username: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DocumentSnapshot {
+    pub id: Uuid,
+    pub subdoc_guid: String,
+    pub yjs_state: Vec<u8>,
+    pub created_by: Uuid,
+    pub snapshot_type: String,
+    pub description: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Vault {
     pub id: Uuid,
     pub user_id: Option<Uuid>,

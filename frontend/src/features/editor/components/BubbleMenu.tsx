@@ -17,10 +17,12 @@ import {
     Heading4,
     Heading5,
     Heading6,
+    Image,
     Italic,
     Underline,
     ChevronDown
 } from 'lucide-react'
+import { uploadImage } from '../extensions/ImageUploadExtension'
 
 const HeadingLevels: [1, 2, 3] = [1, 2, 3]
 const HeadingLevelsMap = [
@@ -39,9 +41,18 @@ type Props = {
 export default function BubbleMenuComponent({ editor }: Props) {
     const [subOpen, setSubOpen] = useState(false)
     const subOpenRef = useRef(subOpen)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+
     useEffect(() => {
         subOpenRef.current = subOpen
     }, [subOpen])
+
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file && editor) {
+            uploadImage(file, editor)
+        }
+    }
 
     if (!editor) return null
 
@@ -70,6 +81,22 @@ export default function BubbleMenuComponent({ editor }: Props) {
             }}
             className="flex items-center gap-1 rounded-md bg-popover p-1 shadow-md border border-border"
         >
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+            />
+
+            <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+            >
+                <Image />
+            </Button>
+
             <Button
                 size="icon"
                 variant="ghost"

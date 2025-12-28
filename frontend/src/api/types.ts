@@ -97,3 +97,30 @@ export interface AddVaultMemberRequest {
     username?: string
     role?: string
 }
+
+export interface DocumentEdit {
+    id: string
+    subdoc_guid: string
+    user_id: string
+    session_id: string
+    yjs_update: Uint8Array
+    edit_type?: string
+    block_type?: string
+    block_position?: number
+    content_before?: string
+    content_after?: string
+    created_at: string
+    username?: string
+    display_name?: string
+    avatar_url?: string
+}
+
+export interface DocumentSnapshot {
+    id: string
+    subdoc_guid: string
+    yjs_state: Uint8Array
+    created_by: string
+    snapshot_type: string
+    description?: string
+    created_at: string
+}

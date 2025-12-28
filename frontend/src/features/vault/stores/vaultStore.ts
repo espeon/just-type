@@ -23,6 +23,7 @@ interface VaultState {
     setStorage: (storage: StorageProvider) => void
     initializeVault: (name: string, path: string) => Promise<void>
     loadVault: () => Promise<void>
+    clearVault: () => void
     buildIndex: () => Promise<void>
     createDocument: (title: string) => Promise<Document>
     openDocument: (id: string) => Promise<void>
@@ -79,7 +80,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     loadVault: async () => {
         const vault = useConfigStore.getState().getCurrentVault()
-        const { userId } = useConfigStore.getState()
         if (!vault) {
             set({
                 documents: [],
@@ -91,24 +91,64 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         }
 
         await get().buildIndex()
+    },
 
-        // Fetch batch metadata from server if vault is synced
-        if (vault.syncEnabled && userId) {
-            try {
-                await vaultsApi.getDocumentsMetadata(vault.id)
-            } catch (error) {
-                console.error('Failed to fetch documents metadata:', error)
-            }
-        }
+    clearVault: () => {
+        set({
+            documents: [],
+            index: null,
+            structure: null,
+            currentDocument: null
+        })
     },
 
     buildIndex: async () => {
         const { storage } = get()
         const vault = useConfigStore.getState().getCurrentVault()
+        const { userId } = useConfigStore.getState()
         if (!vault || !storage) return
 
         try {
             set({ isLoading: true, error: null })
+
+            // For synced vaults, fetch from server instead of local filesystem
+            if (vault.syncEnabled && userId) {
+                try {
+                    const serverMetadata = await vaultsApi.getDocumentsMetadata(
+                        vault.id
+                    )
+
+                    // Convert server metadata to Document format
+                    const documents: Document[] = serverMetadata.map(
+                        (meta) => ({
+                            version: 1,
+                            id: meta.guid,
+                            metadata: {
+                                title: meta.title || 'Untitled',
+                                created: new Date(meta.created_at).getTime(),
+                                modified: new Date(meta.modified_at).getTime(),
+                                tags: meta.tags || [],
+                                backlinks: [],
+                                icon: meta.icon,
+                                description: meta.description,
+                                parentId: meta.parent_guid
+                            },
+                            state: '' // State will be loaded via Yjs when document is opened
+                        })
+                    )
+
+                    const index = buildDocumentIndex(documents)
+                    set({ documents, index, structure: null })
+                    return
+                } catch (error) {
+                    console.error(
+                        'Failed to fetch server documents, falling back to local:',
+                        error
+                    )
+                }
+            }
+
+            // For local vaults or if server fetch failed, read from filesystem
             const documents = await storage.readAllDocuments(vault.localPath)
             const structure = await storage.readVaultStructure(vault.localPath)
             const index = buildDocumentIndex(documents)
@@ -123,18 +163,46 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     createDocument: async (title: string) => {
         const { storage } = get()
         const vault = useConfigStore.getState().getCurrentVault()
+        const { userId } = useConfigStore.getState()
         if (!vault) throw new Error('No vault selected')
         if (!storage) throw new Error('Storage provider not initialized')
 
         try {
             set({ isLoading: true, error: null })
-            const document = await storage.createDocument(
-                vault.localPath,
-                title
-            )
-            await get().buildIndex()
-            set({ currentDocument: document })
-            return document
+
+            // For synced vaults, create on server first
+            if (vault.syncEnabled && userId) {
+                const serverDoc = await vaultsApi.createDocument(
+                    vault.id,
+                    title
+                )
+
+                // Refresh index to fetch all documents from server
+                await get().buildIndex()
+
+                // Find the newly created document in the refreshed list
+                const document = get().documents.find(
+                    (d) => d.id === serverDoc.guid
+                )
+                if (document) {
+                    set({ currentDocument: document })
+                    return document
+                }
+
+                // Fallback if not found (shouldn't happen)
+                throw new Error(
+                    'Document created on server but not found after refresh'
+                )
+            } else {
+                // For local vaults, create locally
+                const document = await storage.createDocument(
+                    vault.localPath,
+                    title
+                )
+                await get().buildIndex()
+                set({ currentDocument: document })
+                return document
+            }
         } catch (error) {
             set({ error: String(error) })
             throw error
@@ -144,8 +212,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     },
 
     openDocument: async (id: string) => {
-        const { storage } = get()
+        const { storage, documents } = get()
         const vault = useConfigStore.getState().getCurrentVault()
+        const { userId } = useConfigStore.getState()
         if (!vault) throw new Error('No vault selected')
         if (!storage)
             throw new Error(
@@ -154,8 +223,20 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
         try {
             set({ isLoading: true, error: null })
-            const document = await storage.readDocument(vault.localPath, id)
-            set({ currentDocument: document })
+
+            // For synced vaults, use the document from our index (already loaded from server)
+            if (vault.syncEnabled && userId) {
+                const document = documents.find((d) => d.id === id)
+                if (document) {
+                    set({ currentDocument: document })
+                } else {
+                    throw new Error('Document not found in index')
+                }
+            } else {
+                // For local vaults, read from filesystem
+                const document = await storage.readDocument(vault.localPath, id)
+                set({ currentDocument: document })
+            }
         } catch (error) {
             set({ error: String(error) })
         } finally {

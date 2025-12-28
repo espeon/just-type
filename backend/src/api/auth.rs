@@ -24,6 +24,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub config: Config,
     pub sync_manager: std::sync::Arc<crate::sync::SyncManager>,
+    pub storage: std::sync::Arc<dyn crate::storage::BlobStorage>,
 }
 
 async fn register(

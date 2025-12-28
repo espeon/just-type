@@ -77,6 +77,30 @@ export const commandCategories: CommandCategory[] = [
                     editor.chain().focus().setHorizontalRule().run()
             }
         ]
+    },
+    {
+        name: 'Media',
+        commands: [
+            {
+                title: 'Image',
+                description: 'upload an image',
+                command: (editor) => {
+                    // Create and trigger hidden file input
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = 'image/*'
+                    input.onchange = async (e) => {
+                        const file = (e.target as HTMLInputElement).files?.[0]
+                        if (file) {
+                            const { uploadImage } =
+                                await import('./ImageUploadExtension')
+                            uploadImage(file, editor)
+                        }
+                    }
+                    input.click()
+                }
+            }
+        ]
     }
 ]
 

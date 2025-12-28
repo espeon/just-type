@@ -17,7 +17,17 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
+use yrs::{Doc, GetString, ReadTxn, StateVector, Transact, Update};
+
+/// Metadata extracted from a Yjs update for audit logging
+#[derive(Debug)]
+struct EditMetadata {
+    edit_type: String,
+    block_type: Option<String>,
+    block_position: Option<i32>,
+    content_before: Option<String>,
+    content_after: Option<String>,
+}
 
 fn read_var_from_slice(data: &[u8]) -> anyhow::Result<(u32, &[u8])> {
     let mut value: u32 = 0;
@@ -127,11 +137,18 @@ pub async fn ws_handler(
         query.get("doc").cloned()
     };
 
-    Ok(
-        ws.on_upgrade(move |socket| {
-            handle_socket(socket, state, path_doc, vault_id, user_id, role)
-        }),
-    )
+    // Generate session ID for tracking this WebSocket connection
+    let session_id = Uuid::new_v4();
+    tracing::info!(
+        "WebSocket session created: session_id={}, user_id={}, vault_id={}",
+        session_id,
+        user_id,
+        vault_id
+    );
+
+    Ok(ws.on_upgrade(move |socket| {
+        handle_socket(socket, state, path_doc, vault_id, user_id, role, session_id)
+    }))
 }
 
 async fn handle_socket(
@@ -141,13 +158,15 @@ async fn handle_socket(
     vault_id: Uuid,
     user_id: Uuid,
     role: VaultRole,
+    session_id: Uuid,
 ) {
     tracing::info!(
-        "WebSocket connection established, doc: {:?}, vault_id={}, user_id={}, role={:?}",
+        "WebSocket connection established, doc: {:?}, vault_id={}, user_id={}, role={:?}, session_id={}",
         doc,
         vault_id,
         user_id,
-        role
+        role,
+        session_id
     );
 
     let (mut sender, mut receiver) = socket.split();
@@ -198,7 +217,7 @@ async fn handle_socket(
                             tracing::warn!("Received Binary message with zero length");
                         }
 
-                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, vault_id, user_id, role).await {
+                        match handle_binary_message(&mut sender, &state, &data, &mut subscriptions, &doc, vault_id, user_id, role, session_id).await {
                             Ok(_) => tracing::debug!("Message handled successfully"),
                             Err(e) => {
                                 tracing::error!("Error handling binary message: {:?}", e);
@@ -295,6 +314,7 @@ async fn handle_binary_message(
     vault_id: Uuid,
     user_id: Uuid,
     role: VaultRole,
+    session_id: Uuid,
 ) -> anyhow::Result<()> {
     // Yjs y-protocols message format:
     // varUint(syncProtocolMessageType) • varUint(messageType) • varByteArray(payload)
@@ -375,7 +395,10 @@ async fn handle_binary_message(
             }
             2 => {
                 // Update: Client sends incremental update
-                handle_update(sender, state, payload, doc, vault_id, user_id, role).await?;
+                handle_update(
+                    sender, state, payload, doc, vault_id, user_id, role, session_id,
+                )
+                .await?;
             }
             _ => {
                 tracing::warn!("Unknown sync message type: {}", msg_type);
@@ -518,6 +541,7 @@ async fn handle_update(
     vault_id: Uuid,
     user_id: Uuid,
     role: VaultRole,
+    session_id: Uuid,
 ) -> anyhow::Result<()> {
     tracing::debug!("handle_update called with payload {} bytes", payload.len());
 
@@ -544,14 +568,18 @@ async fn handle_update(
     };
 
     tracing::info!(
-        "Incoming update for document: {} ({} bytes) from user {}",
+        "Incoming update for document: {} ({} bytes) from user {} in session {}",
         guid,
         update_bytes.len(),
-        user_id
+        user_id,
+        session_id
     );
 
     // Load document from database
     let (doc_obj, _metadata) = load_or_create_document(state, &guid, vault_id).await?;
+
+    // Extract document text BEFORE applying update
+    let content_before = extract_text_sample(&doc_obj, 500);
 
     // Apply update to document
     let update = Update::decode_v1(update_bytes)?;
@@ -559,6 +587,21 @@ async fn handle_update(
         let mut txn = doc_obj.transact_mut();
         txn.apply_update(update)?;
     }
+
+    // Extract document text AFTER applying update
+    let content_after = extract_text_sample(&doc_obj, 500);
+
+    // Log this edit to audit log with before/after content
+    log_document_edit(
+        state,
+        &guid,
+        user_id,
+        session_id,
+        update_bytes,
+        content_before,
+        content_after,
+    )
+    .await?;
 
     // Save updated document to database
     save_document(state, &guid, &doc_obj, vault_id, user_id).await?;
@@ -668,6 +711,158 @@ async fn load_or_create_document(
 
         tracing::debug!("Created new document {} for vault {}", guid, vault_id);
         Ok((doc, metadata))
+    }
+}
+
+/// Extract basic metadata from a Yjs update
+///
+/// This provides a best-effort extraction of edit metadata for audit logging.
+/// Yjs updates are complex CRDT structures with limited public introspection APIs.
+///
+/// We extract:
+/// - Update size (bytes changed)
+/// - Current document text sample (for context)
+///
+/// For detailed operation-level diffs, see:
+/// - https://docs.yjs.dev/ecosystem/editor-bindings/prosemirror
+/// - https://github.com/yjs/yjs-demos/tree/main/prosemirror-versions
+fn extract_edit_metadata(yjs_update: &[u8], doc: &Doc) -> EditMetadata {
+    // Verify the update can be decoded
+    let update_result = Update::decode_v1(yjs_update);
+
+    if update_result.is_ok() {
+        // Classify based on update size (heuristic)
+        // Small updates are likely formatting, larger ones are content changes
+        let edit_type = match yjs_update.len() {
+            0..=50 => "format".to_string(),   // Small updates likely formatting
+            51..=500 => "insert".to_string(), // Medium updates likely insertions
+            _ => "update".to_string(),        // Large updates are general edits
+        };
+
+        // Extract current document text for context
+        let content_sample = extract_text_sample(doc, 100);
+
+        EditMetadata {
+            edit_type,
+            block_type: Some("prosemirror".to_string()),
+            block_position: None,
+            content_before: None,
+            content_after: content_sample,
+        }
+    } else {
+        // If we can't decode the update, log it as unknown
+        tracing::warn!("Failed to decode Yjs update for metadata extraction");
+        EditMetadata {
+            edit_type: "unknown".to_string(),
+            block_type: None,
+            block_position: None,
+            content_before: None,
+            content_after: None,
+        }
+    }
+}
+
+/// Extract a text sample from the document for audit context
+/// This is a best-effort extraction that gets the first N characters
+fn extract_text_sample(doc: &Doc, max_chars: usize) -> Option<String> {
+    let txn = doc.transact();
+
+    // ProseMirror content is typically stored in a XmlFragment named "prosemirror"
+    if let Some(xml_fragment) = txn.get_xml_fragment("prosemirror") {
+        let xml_text = xml_fragment.get_string(&txn);
+        if !xml_text.is_empty() {
+            let sample = xml_text.chars().take(max_chars).collect::<String>();
+            return Some(sample);
+        }
+    }
+
+    None
+}
+
+// Log document edit to audit log
+async fn log_document_edit(
+    state: &AppState,
+    subdoc_guid: &str,
+    user_id: Uuid,
+    session_id: Uuid,
+    yjs_update: &[u8],
+    content_before: Option<String>,
+    content_after: Option<String>,
+) -> anyhow::Result<()> {
+    // Classify edit type based on before/after content comparison
+    let edit_type = classify_edit_type(&content_before, &content_after, yjs_update.len());
+
+    tracing::debug!(
+        "Edit: type={}, before_len={}, after_len={}",
+        edit_type,
+        content_before.as_ref().map(|s| s.len()).unwrap_or(0),
+        content_after.as_ref().map(|s| s.len()).unwrap_or(0)
+    );
+
+    sqlx::query!(
+        r#"
+        INSERT INTO document_edits (
+            subdoc_guid, user_id, session_id, yjs_update,
+            edit_type, block_type, block_position, content_before, content_after
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+        subdoc_guid,
+        user_id,
+        session_id,
+        yjs_update,
+        edit_type,
+        Some("prosemirror".to_string()),
+        None::<i32>,
+        content_before,
+        content_after
+    )
+    .execute(&state.pool)
+    .await?;
+
+    tracing::info!(
+        "Logged edit: subdoc_guid={}, user_id={}, session_id={}, type={}, bytes={}",
+        subdoc_guid,
+        user_id,
+        session_id,
+        edit_type,
+        yjs_update.len()
+    );
+
+    Ok(())
+}
+
+/// Classify edit type based on before/after content comparison
+fn classify_edit_type(
+    before: &Option<String>,
+    after: &Option<String>,
+    update_size: usize,
+) -> String {
+    match (before, after) {
+        (Some(b), Some(a)) => {
+            let before_len = b.len();
+            let after_len = a.len();
+
+            if after_len > before_len {
+                "insert".to_string()
+            } else if after_len < before_len {
+                "delete".to_string()
+            } else if b != a {
+                "update".to_string()
+            } else {
+                "format".to_string() // Same text, likely formatting change
+            }
+        }
+        (None, Some(_)) => "insert".to_string(),
+        (Some(_), None) => "delete".to_string(),
+        (None, None) => {
+            // Fallback to size-based heuristic
+            if update_size < 50 {
+                "format".to_string()
+            } else {
+                "update".to_string()
+            }
+        }
     }
 }
 

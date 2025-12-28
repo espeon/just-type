@@ -5,6 +5,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { KeyboardShortcutsExtension } from '../extensions/KeyboardShortcutsExtension'
 import { SlashCommandExtension } from '../extensions/SlashCommandExtension'
 import { DocumentMentionExtension } from '../extensions/DocumentMentionExtension'
+import { ImageUploadExtension } from '../extensions/ImageUploadExtension'
 import * as Y from 'yjs'
 
 interface UseTiptapEditorProps {
@@ -39,7 +40,8 @@ export function useTiptapEditor({
             }),
             KeyboardShortcutsExtension,
             SlashCommandExtension,
-            DocumentMentionExtension
+            DocumentMentionExtension,
+            ImageUploadExtension
         ],
         editable,
         editorProps: {

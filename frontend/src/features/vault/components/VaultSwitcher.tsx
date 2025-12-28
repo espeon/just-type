@@ -30,14 +30,21 @@ import {
     DialogHeader,
     DialogTitle
 } from '@/components/ui/dialog'
-import { ChevronsUpDown, LucideCloud } from 'lucide-react'
+import { ChevronsUpDown, LucideCloud, Origami, UserIcon } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 
 export function VaultSwitcher() {
     const storage = useStorage()
-    const { vaults, currentVaultId, setCurrentVault, addVault, userId } =
-        useConfigStore()
-    const { loadVault } = useVaultStore()
+    const {
+        vaults,
+        currentVaultId,
+        setCurrentVault,
+        addVault,
+        userId,
+        currentOrgContext,
+        setCurrentOrgContext
+    } = useConfigStore()
+    const { loadVault, clearVault } = useVaultStore()
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [isCreating, setIsCreating] = useState(false)
     const [newVaultName, setNewVaultName] = useState('')
@@ -48,8 +55,6 @@ export function VaultSwitcher() {
     const [serverVaults, setServerVaults] = useState<Map<string, any>>(
         new Map()
     )
-    const [currentOrgContext, setCurrentOrgContext] =
-        useState<string>('personal')
 
     const navi = useNavigate()
 
@@ -102,6 +107,7 @@ export function VaultSwitcher() {
 
     const handleSwitchVault = async (vaultId: string) => {
         setCurrentVault(vaultId)
+        clearVault()
         // redirect to root to reset any open routes/files (via navigator)
         navi({ to: '/' })
         await loadVault()
@@ -130,7 +136,9 @@ export function VaultSwitcher() {
                     setEnableSync(false)
                     setVaultType('user')
                     setIsDialogOpen(false)
+                    clearVault()
                     await loadVault()
+                    navi({ to: '/' })
                 } catch (error) {
                     console.error('Failed to create org vault:', error)
                     throw error
@@ -174,7 +182,9 @@ export function VaultSwitcher() {
                     setNewVaultName('')
                     setEnableSync(false)
                     setIsDialogOpen(false)
+                    clearVault()
                     await loadVault()
+                    navi({ to: '/' })
                 }
             }
         } catch (error) {
@@ -189,15 +199,46 @@ export function VaultSwitcher() {
             {/* Organization Context Selector */}
             <Select
                 value={currentOrgContext}
-                onValueChange={(value) => setCurrentOrgContext(value)}
+                onValueChange={async (value) => {
+                    setCurrentOrgContext(value)
+
+                    // Find vaults in the new context
+                    const newContextVaults = vaults.filter((v) => {
+                        const serverVault = serverVaults.get(v.id)
+                        if (value === 'personal') {
+                            return (
+                                !serverVault ||
+                                serverVault.vault_type === 'user'
+                            )
+                        } else {
+                            return serverVault?.org_id === value
+                        }
+                    })
+
+                    // Auto-select first vault if available, otherwise clear selection
+                    if (newContextVaults.length > 0) {
+                        setCurrentVault(newContextVaults[0].id)
+                        clearVault()
+                        await loadVault()
+                    } else {
+                        setCurrentVault('')
+                        clearVault()
+                    }
+
+                    navi({ to: '/' })
+                }}
             >
                 <SelectTrigger className="w-full mb-2">
                     <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                    <SelectItem value="personal">personal</SelectItem>
+                    <SelectItem value="personal">
+                        <UserIcon />
+                        personal
+                    </SelectItem>
                     {organizations.map((org) => (
                         <SelectItem key={org.id} value={org.id}>
+                            <Origami />
                             {org.name}
                         </SelectItem>
                     ))}

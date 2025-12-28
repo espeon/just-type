@@ -25,6 +25,23 @@ export const vaultsApi = {
         return apiClient.delete<void>(`/api/vaults/${vaultId}`)
     },
 
+    createDocument: async (
+        vaultId: string,
+        title: string,
+        parentGuid?: string
+    ): Promise<{
+        guid: string
+        vault_id: string
+        title: string
+        doc_type: string
+        created_at: string
+    }> => {
+        return apiClient.post(`/api/vaults/${vaultId}/documents`, {
+            title,
+            parent_guid: parentGuid
+        })
+    },
+
     getDocumentsMetadata: async (
         vaultId: string
     ): Promise<DocumentMetadata[]> => {

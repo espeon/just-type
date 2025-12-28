@@ -1,12 +1,29 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { AppConfig, VaultConfig, DEFAULT_CONFIG } from '../types/config'
+import { VaultConfig } from '../types/config'
 import { v4 as uuidv4 } from 'uuid'
 import { authApi } from '@/api/auth'
 import { vaultsApi } from '@/api/vaults'
 
-interface ConfigState extends AppConfig {
+interface PersistedState {
+    userId: string | null
+    authToken: string | null
     refreshToken: string | null
+    currentOrgContext: 'personal' | string
+    // Per-user vault configs: { userId: { vaults: [], currentVaultId: '' } }
+    userVaultConfigs: Record<
+        string,
+        { vaults: VaultConfig[]; currentVaultId: string | null }
+    >
+}
+
+interface ConfigState {
+    userId: string | null
+    authToken: string | null
+    refreshToken: string | null
+    currentOrgContext: 'personal' | string
+    vaults: VaultConfig[]
+    currentVaultId: string | null
     addVault: (
         name: string,
         localPath: string,
@@ -16,6 +33,7 @@ interface ConfigState extends AppConfig {
     removeVault: (vaultId: string) => void
     updateVault: (vaultId: string, updates: Partial<VaultConfig>) => void
     setCurrentVault: (vaultId: string) => void
+    setCurrentOrgContext: (context: 'personal' | string) => void
     setAuth: (userId: string, token: string, refreshToken: string) => void
     clearAuth: () => void
     syncServerVaults: () => Promise<void>
@@ -33,8 +51,12 @@ interface ConfigState extends AppConfig {
 export const useConfigStore = create<ConfigState>()(
     persist(
         (set, get) => ({
-            ...DEFAULT_CONFIG,
+            userId: null,
+            authToken: null,
             refreshToken: null,
+            currentOrgContext: 'personal',
+            vaults: [],
+            currentVaultId: null,
 
             addVault: (
                 name: string,
@@ -83,13 +105,44 @@ export const useConfigStore = create<ConfigState>()(
                 get().updateVault(vaultId, { lastOpened: Date.now() })
             },
 
+            setCurrentOrgContext: (context: 'personal' | string) => {
+                set({ currentOrgContext: context })
+            },
+
             setAuth: (userId: string, token: string, refreshToken: string) => {
-                set({ userId, authToken: token, refreshToken })
+                // Get vault config for this user from persisted state
+                const stored = localStorage.getItem('just-type-config')
+                const existingState: PersistedState = stored
+                    ? JSON.parse(stored).state
+                    : {
+                          userId: null,
+                          authToken: null,
+                          refreshToken: null,
+                          currentOrgContext: 'personal',
+                          userVaultConfigs: {}
+                      }
+
+                const userConfig = existingState.userVaultConfigs?.[userId]
+
+                set({
+                    userId,
+                    authToken: token,
+                    refreshToken,
+                    vaults: userConfig?.vaults || [],
+                    currentVaultId: userConfig?.currentVaultId || null,
+                    currentOrgContext: 'personal' // Reset to personal on login
+                })
             },
 
             clearAuth: () => {
-                set({ userId: null, authToken: null, refreshToken: null })
-                // Don't disable sync - let vaults remember their sync state for next login
+                set({
+                    userId: null,
+                    authToken: null,
+                    refreshToken: null,
+                    vaults: [],
+                    currentVaultId: null,
+                    currentOrgContext: 'personal'
+                })
             },
 
             syncServerVaults: async () => {
@@ -190,7 +243,59 @@ export const useConfigStore = create<ConfigState>()(
             }
         }),
         {
-            name: 'just-type-config'
+            name: 'just-type-config',
+            partialize: (state): PersistedState => {
+                const { userId, vaults, currentVaultId } = state
+
+                // Get current persisted state to preserve other users' data
+                const stored = localStorage.getItem('just-type-config')
+                const existingState: PersistedState = stored
+                    ? JSON.parse(stored).state
+                    : {
+                          userId: null,
+                          authToken: null,
+                          refreshToken: null,
+                          currentOrgContext: 'personal',
+                          userVaultConfigs: {}
+                      }
+
+                // Update vault config for current user
+                const userVaultConfigs = { ...existingState.userVaultConfigs }
+                if (userId) {
+                    userVaultConfigs[userId] = { vaults, currentVaultId }
+                }
+
+                return {
+                    userId: state.userId,
+                    authToken: state.authToken,
+                    refreshToken: state.refreshToken,
+                    currentOrgContext: state.currentOrgContext,
+                    userVaultConfigs
+                }
+            },
+            merge: (
+                persistedState: unknown,
+                currentState: ConfigState
+            ): ConfigState => {
+                const persisted = persistedState as PersistedState
+                const userId = persisted.userId
+
+                // Load vault config for current user
+                const userConfig = userId
+                    ? persisted.userVaultConfigs?.[userId]
+                    : null
+
+                return {
+                    ...currentState,
+                    userId: persisted.userId,
+                    authToken: persisted.authToken,
+                    refreshToken: persisted.refreshToken,
+                    currentOrgContext:
+                        persisted.currentOrgContext || 'personal',
+                    vaults: userConfig?.vaults || [],
+                    currentVaultId: userConfig?.currentVaultId || null
+                }
+            }
         }
     )
 )
