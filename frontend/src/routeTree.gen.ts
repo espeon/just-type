@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocDocIdRouteImport } from './routes/doc.$docId'
+import { Route as CanvasCanvasIdRouteImport } from './routes/canvas.$canvasId'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -28,34 +29,43 @@ const DocDocIdRoute = DocDocIdRouteImport.update({
   path: '/doc/$docId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CanvasCanvasIdRoute = CanvasCanvasIdRouteImport.update({
+  id: '/canvas/$canvasId',
+  path: '/canvas/$canvasId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/canvas/$canvasId': typeof CanvasCanvasIdRoute
   '/doc/$docId': typeof DocDocIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/canvas/$canvasId': typeof CanvasCanvasIdRoute
   '/doc/$docId': typeof DocDocIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/canvas/$canvasId': typeof CanvasCanvasIdRoute
   '/doc/$docId': typeof DocDocIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/doc/$docId'
+  fullPaths: '/' | '/settings' | '/canvas/$canvasId' | '/doc/$docId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/doc/$docId'
-  id: '__root__' | '/' | '/settings' | '/doc/$docId'
+  to: '/' | '/settings' | '/canvas/$canvasId' | '/doc/$docId'
+  id: '__root__' | '/' | '/settings' | '/canvas/$canvasId' | '/doc/$docId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  CanvasCanvasIdRoute: typeof CanvasCanvasIdRoute
   DocDocIdRoute: typeof DocDocIdRoute
 }
 
@@ -82,12 +92,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocDocIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/canvas/$canvasId': {
+      id: '/canvas/$canvasId'
+      path: '/canvas/$canvasId'
+      fullPath: '/canvas/$canvasId'
+      preLoaderRoute: typeof CanvasCanvasIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  CanvasCanvasIdRoute: CanvasCanvasIdRoute,
   DocDocIdRoute: DocDocIdRoute,
 }
 export const routeTree = rootRouteImport

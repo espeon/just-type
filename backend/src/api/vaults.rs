@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 use yrs::updates::encoder::Encode;
-use yrs::{ReadTxn, Transact};
+use yrs::{Map, ReadTxn, Transact, WriteTxn};
 
 use crate::{
     api::auth::AppState,
@@ -157,6 +157,7 @@ pub fn vault_routes() -> Router<AppState> {
         .route("/{vault_id}/restore", post(restore_vault))
         .route("/{vault_id}/transfer", post(transfer_vault_to_org))
         .route("/{vault_id}/documents", post(create_document))
+        .route("/{vault_id}/canvases", post(create_canvas))
         .route(
             "/{vault_id}/documents/metadata",
             get(get_vault_documents_metadata),
@@ -485,6 +486,78 @@ async fn create_document(
         vault_id,
         title: req.title,
         doc_type: "document".to_string(),
+        created_at,
+    }))
+}
+
+async fn create_canvas(
+    State(state): State<AppState>,
+    claims: Claims,
+    Path(vault_id): Path<Uuid>,
+    Json(req): Json<CreateDocumentRequest>,
+) -> Result<Json<CreateDocumentResponse>, StatusCode> {
+    let role = get_user_vault_role(&state.pool, vault_id, claims.sub)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if role == VaultRole::None || role == VaultRole::Viewer {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    // Generate GUID for the canvas
+    let guid = uuid::Uuid::new_v4().to_string();
+
+    // Create Yjs document with initialized canvas structure
+    let doc = yrs::Doc::new();
+    {
+        let mut txn = doc.transact_mut();
+        let surface = txn.get_or_insert_map("surface");
+        surface.insert(
+            &mut txn,
+            "elements",
+            yrs::types::array::ArrayPrelim::default(),
+        );
+        surface.insert(&mut txn, "viewport", yrs::types::map::MapPrelim::default());
+        surface.insert(&mut txn, "metadata", yrs::types::map::MapPrelim::default());
+    }
+    let state_vector = doc.transact().state_vector().encode_v1();
+    let yjs_state = doc
+        .transact()
+        .encode_state_as_update_v1(&yrs::StateVector::default());
+
+    // Insert into subdocs
+    sqlx::query!(
+        "INSERT INTO subdocs (guid, vault_id, doc_type, parent_guid, yjs_state, state_vector)
+         VALUES ($1, $2, $3, $4, $5, $6)",
+        guid,
+        vault_id,
+        "canvas",
+        req.parent_guid,
+        yjs_state,
+        state_vector,
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Insert metadata
+    sqlx::query!(
+        "INSERT INTO subdoc_metadata (subdoc_guid, title)
+         VALUES ($1, $2)",
+        guid,
+        req.title,
+    )
+    .execute(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let created_at = chrono::Utc::now();
+
+    Ok(Json(CreateDocumentResponse {
+        guid,
+        vault_id,
+        title: req.title,
+        doc_type: "canvas".to_string(),
         created_at,
     }))
 }

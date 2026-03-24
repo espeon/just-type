@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
 import { useConfigStore } from '@/features/vault/stores/configStore'
 import { useVaultStore } from '@/features/vault/stores/vaultStore'
 import { useStorage } from '@/features/vault/storage/StorageContext'
@@ -25,6 +25,7 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
     const userId = useConfigStore((state) => state.userId)
     const { loadVault, setStorage } = useVaultStore()
     const [user, setUser] = useState<User | null>(null)
+    const router = useRouterState()
 
     useEffect(() => {
         setStorage(storage)
@@ -47,7 +48,8 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
         }
     }, [userId])
 
-    if (!currentVault) {
+    // Don't show OOBE on settings page - let user log in first
+    if (!currentVault && router.location.pathname !== '/settings') {
         return <VaultSetup />
     }
 
@@ -114,7 +116,7 @@ export function SidebarWrapper({ children }: { children: React.ReactNode }) {
                     )}
                 </SidebarFooter>
             </Sidebar>
-            <SidebarInset>
+            <SidebarInset className="h-screen overflow-hidden">
                 <div className="p-2 fixed top-0 z-999">
                     <SidebarTrigger />
                 </div>

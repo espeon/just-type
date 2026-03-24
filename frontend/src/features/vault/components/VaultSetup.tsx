@@ -122,6 +122,19 @@ export function VaultSetup() {
                               ? 'Create Organization Vault'
                               : 'Choose Vault Location'}
                     </Button>
+                    {!userId && (
+                        <div className="pt-4 border-t">
+                            <p className="text-sm text-muted-foreground mb-3">
+                                Already have an account?
+                            </p>
+                            <Button
+                                variant="outline"
+                                onClick={() => navi({ to: '/settings' })}
+                            >
+                                Log In
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

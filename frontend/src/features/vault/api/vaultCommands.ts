@@ -10,7 +10,7 @@ export interface DocumentMetadata {
     icon?: string
     description?: string
     parentId?: string
-    type?: 'document' | 'folder'
+    type?: 'document' | 'folder' | 'canvas'
     order?: number
 }
 

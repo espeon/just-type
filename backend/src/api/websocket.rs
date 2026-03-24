@@ -480,10 +480,11 @@ async fn handle_sync_step1(
     let update = {
         let txn = doc_obj.transact();
         let diff = txn.encode_diff_v1(&state_vector);
-        tracing::debug!(
-            "Sending diff: {} bytes (client state_vector: {:?})",
+        tracing::info!(
+            "Sending diff: {} bytes (client state_vector: {:?}), doc_type: {}",
             diff.len(),
-            &state_vector
+            &state_vector,
+            metadata.doc_type
         );
         diff
     };
@@ -576,7 +577,7 @@ async fn handle_update(
     );
 
     // Load document from database
-    let (doc_obj, _metadata) = load_or_create_document(state, &guid, vault_id).await?;
+    let (doc_obj, metadata) = load_or_create_document(state, &guid, vault_id).await?;
 
     // Extract full document content BEFORE applying update
     let content_before = extract_text_sample(&doc_obj, usize::MAX);
@@ -603,8 +604,16 @@ async fn handle_update(
     )
     .await?;
 
-    // Save updated document to database
-    save_document(state, &guid, &doc_obj, vault_id, user_id).await?;
+    // Save updated document to database, preserving doc_type
+    save_document(
+        state,
+        &guid,
+        &doc_obj,
+        vault_id,
+        user_id,
+        &metadata.doc_type,
+    )
+    .await?;
 
     // Broadcast update to other clients
     // Format: varUint(0) • varUint(2) • varByteArray(update)
@@ -874,12 +883,14 @@ async fn save_document(
     doc: &Doc,
     vault_id: Uuid,
     user_id: Uuid,
+    doc_type: &str,
 ) -> anyhow::Result<()> {
     tracing::debug!(
-        "save_document called for guid: {}, vault_id: {}, user_id: {}",
+        "save_document called for guid: {}, vault_id: {}, user_id: {}, doc_type: {}",
         guid,
         vault_id,
-        user_id
+        user_id,
+        doc_type
     );
 
     let (state_bytes, state_vector_bytes) = {
@@ -909,7 +920,7 @@ async fn save_document(
         "#,
         guid,
         vault_id,
-        "document",
+        doc_type,
         state_bytes,
         state_vector_bytes,
     )

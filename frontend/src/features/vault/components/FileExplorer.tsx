@@ -60,7 +60,7 @@ function DocumentItem({
     onCancelRename
 }: DocumentItemProps) {
     const isFolder = doc.metadata.type === 'folder' || hasChildren
-    const icon = doc.metadata.icon || (isFolder ? '📁' : '📄')
+    const icon = doc.metadata.icon || '📄'
     const [renameValue, setRenameValue] = useState(doc.metadata.title)
 
     const {
@@ -105,16 +105,18 @@ function DocumentItem({
                             onClick={(e) => {
                                 e.stopPropagation()
                                 if (isRenaming) return
-                                if (isFolder) {
-                                    onToggle()
-                                } else {
-                                    onNavigate(doc.id)
-                                }
+                                onNavigate(doc.id)
                             }}
                         >
                             <span
                                 {...listeners}
                                 className="cursor-grab active:cursor-grabbing"
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (hasChildren) {
+                                        onToggle()
+                                    }
+                                }}
                             >
                                 {/* TODO: if there is no folders don't offset */}
                                 {hasChildren ? (
@@ -330,7 +332,16 @@ export function FileExplorer() {
         const rootDocs: Document[] = []
         const childrenMap = new Map<string, Document[]>()
 
-        documents.forEach((doc) => {
+        // Filter out paired canvases (canvases that have a parent document)
+        const visibleDocs = documents.filter((doc) => {
+            // Hide canvases that are children of documents
+            if (doc.metadata.type === 'canvas' && doc.metadata.parentId) {
+                return false
+            }
+            return true
+        })
+
+        visibleDocs.forEach((doc) => {
             if (doc.metadata.parentId) {
                 const siblings = childrenMap.get(doc.metadata.parentId) || []
                 siblings.push(doc)
